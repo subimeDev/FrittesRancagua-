@@ -9,11 +9,21 @@ type State =
   | { status: "unauthenticated"; account: null; isStale: boolean; reason?: string }
   | { status: "authenticated"; account: LoyaltyCustomerDto; isStale: boolean; reason?: string };
 
-async function readSessionToken(): Promise<string | null> {
-  const response = await fetch("/api/auth/session", { cache: "no-store" });
-  if (!response.ok) return null;
-  const payload = (await response.json()) as { token?: string | null };
-  return payload.token ?? null;
+const SESSION_KEY = "frittes-loyalty:session";
+
+function readSessionToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(SESSION_KEY);
+}
+
+function saveSessionToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SESSION_KEY, token);
+}
+
+function clearSessionToken(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(SESSION_KEY);
 }
 
 export function useLoyaltyAccount(
@@ -34,7 +44,7 @@ export function useLoyaltyAccount(
   const [token, setToken] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const sessionToken = await readSessionToken();
+    const sessionToken = readSessionToken();
     setToken(sessionToken);
     if (!sessionToken) {
       setState({ status: "unauthenticated", account: null, isStale: false, reason: undefined });
@@ -45,24 +55,19 @@ export function useLoyaltyAccount(
       setState({ status: "authenticated", account, isStale: false });
     } catch (error) {
       if (error instanceof ApiError && error.code === "unauthenticated") {
+        clearSessionToken();
+        setToken(null);
         setState({ status: "unauthenticated", account: null, isStale: false, reason: undefined });
         return;
       }
       if (error instanceof ApiError && error.code === "not_found") {
-        await fetch("/api/auth/session", { method: "DELETE" });
+        clearSessionToken();
         setToken(null);
-        setState({
-          status: "unauthenticated",
-          account: null,
-          isStale: false,
-          reason: "not_found",
-        });
+        setState({ status: "unauthenticated", account: null, isStale: false, reason: "not_found" });
         return;
       }
       setState((prev) => {
-        if (prev.status === "authenticated") {
-          return { ...prev, isStale: true };
-        }
+        if (prev.status === "authenticated") return { ...prev, isStale: true };
         return { status: "unauthenticated", account: null, isStale: false, reason: undefined };
       });
     }
@@ -96,13 +101,10 @@ export function useLoyaltyAccount(
   const signOut = useCallback(async () => {
     try {
       if (token) {
-        await apiRequest<void>("/loyalty/auth/sign-out", {
-          method: "POST",
-          token,
-        });
+        await apiRequest<void>("/loyalty/auth/sign-out", { method: "POST", token });
       }
     } finally {
-      await fetch("/api/auth/session", { method: "DELETE" });
+      clearSessionToken();
       setToken(null);
       setState({ status: "unauthenticated", account: null, isStale: false, reason: undefined });
     }

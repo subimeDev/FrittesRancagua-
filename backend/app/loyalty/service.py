@@ -136,26 +136,32 @@ def _generate_otp() -> str:
 
 
 async def _send_otp_email(email: str, code: str) -> None:
-    import resend as resend_sdk
+    import logging
+    logger = logging.getLogger(__name__)
     settings = get_settings()
     if not settings.resend_api_key:
-        import logging
-        logging.getLogger(__name__).warning("RESEND_API_KEY not set — OTP code: %s", code)
+        logger.warning("RESEND_API_KEY not set — OTP code for %s: %s", email, code)
         return
-    resend_sdk.api_key = settings.resend_api_key
-    resend_sdk.Emails.send({
-        "from": settings.resend_from_email,
-        "to": [email],
-        "subject": "Tu código de verificación Frittes",
-        "html": (
-            f"<div style='font-family:sans-serif;max-width:400px;margin:auto;padding:32px'>"
-            f"<h2 style='margin-bottom:8px'>Frittes Maison</h2>"
-            f"<p style='color:#555'>Tu código de verificación es:</p>"
-            f"<div style='font-size:40px;font-weight:bold;letter-spacing:8px;margin:24px 0'>{code}</div>"
-            f"<p style='color:#999;font-size:13px'>Válido por 5 minutos. No compartas este código.</p>"
-            f"</div>"
-        ),
-    })
+    try:
+        import resend as resend_sdk
+        resend_sdk.api_key = settings.resend_api_key
+        resend_sdk.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [email],
+            "subject": "Tu código de verificación Frittes",
+            "html": (
+                f"<div style='font-family:sans-serif;max-width:400px;margin:auto;padding:32px'>"
+                f"<h2 style='margin-bottom:8px'>Frittes Maison</h2>"
+                f"<p style='color:#555'>Tu código de verificación es:</p>"
+                f"<div style='font-size:40px;font-weight:bold;letter-spacing:8px;margin:24px 0'>{code}</div>"
+                f"<p style='color:#999;font-size:13px'>Válido por 5 minutos. No compartas este código.</p>"
+                f"</div>"
+            ),
+        })
+    except Exception as exc:
+        # Email delivery is best-effort: the OTP is already persisted in DB.
+        # Don't 500 the request if Resend is in sandbox mode, rate-limited, or down.
+        logger.warning("OTP email delivery failed for %s (code=%s): %s", email, code, exc)
 
 
 async def request_otp(db: AsyncSession, phone: str) -> None:
