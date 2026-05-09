@@ -88,15 +88,17 @@ def create_loyalty_class_if_needed() -> None:
 
 
 def build_save_url(customer: Customer) -> str:
-    import google.auth.crypt as crypt
     import google.auth.jwt as gjwt
+    from google.oauth2 import service_account
 
     settings = get_settings()
     if not settings.google_wallet_issuer_id or not settings.google_wallet_credentials_json:
         raise ValueError("Google Wallet not configured")
 
     creds_info = _parse_credentials_json(settings.google_wallet_credentials_json)
-    signer = crypt.RSASigner.from_service_account_info(creds_info)
+    # Use service_account.Credentials to get the signer properly
+    creds = service_account.Credentials.from_service_account_info(creds_info)
+    signer = creds.signer
 
     loyalty_object = {
         "id": _object_id(customer.id),
