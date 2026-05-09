@@ -68,7 +68,7 @@ export default function HomePage(): JSX.Element {
   const account = state.account;
   const ready = account.stamps >= account.threshold;
 
-  async function handleWallet(kind: "apple" | "google"): Promise<void> {
+  async function handleWallet(): Promise<void> {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
     if (!apiUrl) {
       toast.error("Falta NEXT_PUBLIC_API_URL.");
@@ -77,16 +77,13 @@ export default function HomePage(): JSX.Element {
 
     setIsOpeningWallet(true);
     try {
-      track(kind === "apple" ? "apple_wallet_clicked" : "google_wallet_clicked");
-      // Wiring frontend prompts 7/8:
-      // - Apple: GET /api/v1/loyalty/passes/apple/me (.pkpass)
-      // - Google: GET /api/v1/loyalty/passes/google/me (Save Link)
-      const endpoint =
-        kind === "apple" ? "/loyalty/passes/apple/me" : "/loyalty/passes/google/me";
-      const response = await fetch(`${apiUrl}${endpoint}`, {
-        headers: {
-          "X-Restaurant-Id": process.env.NEXT_PUBLIC_RESTAURANT_ID || "frittes-maison",
-        },
+      track("google_wallet_clicked");
+      const headers: Record<string, string> = {
+        "X-Restaurant-Id": process.env.NEXT_PUBLIC_RESTAURANT_ID || "frittes-maison",
+      };
+      if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
+      const response = await fetch(`${apiUrl}/loyalty/passes/google/me`, {
+        headers,
         credentials: "include",
       });
       if (response.status === 401) {
@@ -94,13 +91,6 @@ export default function HomePage(): JSX.Element {
         return;
       }
       if (!response.ok) throw new ApiError("No se pudo abrir Wallet", response.status, "wallet_error");
-
-      if (kind === "apple") {
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        window.location.href = url;
-        return;
-      }
 
       const payload = (await response.json()) as { url?: string };
       if (!payload.url) throw new ApiError("Save link no disponible", 500, "wallet_error");
@@ -204,11 +194,8 @@ export default function HomePage(): JSX.Element {
         </p>
         <AddToWallet
           disabled={isOpeningWallet || isRefreshingQr}
-          onAppleWallet={() => {
-            void handleWallet("apple");
-          }}
           onGoogleWallet={() => {
-            void handleWallet("google");
+            void handleWallet();
           }}
         />
       </section>

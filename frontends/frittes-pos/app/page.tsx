@@ -74,6 +74,16 @@ export default function PosHomePage(): JSX.Element {
       video.srcObject = stream;
       await video.play();
 
+      // Create detector once — reusing it every frame is much more reliable.
+      type BD = { detect: (src: HTMLCanvasElement) => Promise<Array<{ rawValue: string }>> };
+      const detector: BD | null = "BarcodeDetector" in window
+        ? new (window as unknown as { BarcodeDetector: new (o: { formats: string[] }) => BD })
+            .BarcodeDetector({ formats: ["qr_code"] })
+        : null;
+
+      // jsQR is loaded once on first non-native frame.
+      let jsQRMod: ((data: Uint8ClampedArray, w: number, h: number) => { data: string } | null) | null = null;
+
       const scan = (): void => {
         if (detectedRef.current) return;
         const canvas = canvasRef.current;
@@ -86,17 +96,10 @@ export default function PosHomePage(): JSX.Element {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
         ctx.drawImage(video, 0, 0);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        if ("BarcodeDetector" in window) {
-          const detector = new (
-            window as unknown as {
-              BarcodeDetector: new (opts: { formats: string[] }) => {
-                detect: (img: ImageData) => Promise<Array<{ rawValue: string }>>;
-              };
-            }
-          ).BarcodeDetector({ formats: ["qr_code"] });
-          void detector.detect(imageData).then((codes) => {
+        if (detector) {
+          // Pass canvas element — BarcodeDetector works best with ImageBitmapSource elements.
+          void detector.detect(canvas).then((codes) => {
             if (codes.length > 0 && !detectedRef.current) {
               detectedRef.current = true;
               stopCamera();
@@ -104,10 +107,14 @@ export default function PosHomePage(): JSX.Element {
             } else {
               rafRef.current = requestAnimationFrame(scan);
             }
+          }).catch(() => {
+            rafRef.current = requestAnimationFrame(scan);
           });
         } else {
-          void import("jsqr").then(({ default: jsQR }) => {
-            const code = jsQR(imageData.data, imageData.width, imageData.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const runJsQR = (fn: typeof jsQRMod): void => {
+            if (!fn) { rafRef.current = requestAnimationFrame(scan); return; }
+            const code = fn(imageData.data, imageData.width, imageData.height);
             if (code && !detectedRef.current) {
               detectedRef.current = true;
               stopCamera();
@@ -115,7 +122,15 @@ export default function PosHomePage(): JSX.Element {
             } else {
               rafRef.current = requestAnimationFrame(scan);
             }
-          });
+          };
+          if (jsQRMod) {
+            runJsQR(jsQRMod);
+          } else {
+            void import("jsqr").then(({ default: jsQR }) => {
+              jsQRMod = jsQR;
+              runJsQR(jsQR);
+            });
+          }
         }
       };
       rafRef.current = requestAnimationFrame(scan);
