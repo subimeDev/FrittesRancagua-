@@ -142,13 +142,14 @@ export function WalletPass({
 
           {/* Strip QR */}
           <section
-            className="absolute inset-x-0 bottom-0 px-6 py-4"
+            className="absolute inset-x-0 bottom-0 px-5 py-3"
             style={{ background: "var(--brand-cream-muted)" }}
           >
-            <div className="flex items-center gap-4">
-              <div className="grid h-20 w-20 flex-none place-items-center rounded-xl bg-cream-elev p-2 ring-1 ring-line">
-                <div className={`relative ${isQrExpired ? "opacity-40" : ""}`}>
-                  <QRCodeSVG value={qrToken || "pending"} size={64} bgColor="transparent" fgColor="#1A1815" />
+            <div className="flex items-center gap-3">
+              {/* QR grande y centrado para fácil escaneo */}
+              <div className="relative flex-none">
+                <div className={`rounded-xl bg-white p-1.5 ring-1 ring-line ${isQrExpired ? "opacity-40" : ""}`}>
+                  <QRCodeSVG value={qrToken || "pending"} size={96} bgColor="#ffffff" fgColor="#1A1815" />
                 </div>
                 {isQrExpired ? (
                   <button
@@ -157,7 +158,7 @@ export function WalletPass({
                       event.stopPropagation();
                       onRefreshQr();
                     }}
-                    className="absolute inset-0 z-10 rounded-xl bg-cream/80 text-[10px] font-semibold uppercase tracking-wider2 text-ink"
+                    className="absolute inset-0 z-10 rounded-xl bg-cream/90 text-[10px] font-semibold uppercase tracking-wider2 text-ink"
                   >
                     Refrescar
                   </button>
@@ -167,17 +168,17 @@ export function WalletPass({
                 <p className="text-[9px] font-medium uppercase tracking-wider2 text-ink-muted">
                   N° de pase
                 </p>
-                <p className="font-mono text-base font-semibold tracking-[0.2em] text-ink">
+                <p className="font-mono text-sm font-semibold tracking-[0.15em] text-ink">
                   {cardNumber}
                 </p>
                 <p className="mt-1 text-[10px] uppercase tracking-wider2 text-ink-muted">
                   Miembro · {memberSince}
                 </p>
+                <p className="mt-2 text-[9px] uppercase tracking-wider2 text-ink-muted/60">
+                  Toca para ver el reverso ↻
+                </p>
               </div>
             </div>
-            <p className="mt-2 text-center text-[9px] uppercase tracking-wider2 text-ink-muted/70">
-              Toca para ver el reverso ↻
-            </p>
           </section>
         </div>
 
