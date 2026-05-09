@@ -81,3 +81,11 @@ class RevokedJti(Base):
 
     jti: Mapped[str] = mapped_column(String(80), primary_key=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class PendingOtp(Base):
+    __tablename__ = "pending_otps"
+
+    phone: Mapped[str] = mapped_column(String(40), primary_key=True)
+    code: Mapped[str] = mapped_column(String(10))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

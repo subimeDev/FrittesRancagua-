@@ -97,8 +97,11 @@ async def dev_login(
 
 
 @router.post("/auth/request-otp", status_code=204)
-async def request_otp(payload: OtpRequest) -> Response:
-    await service.request_otp(payload.phone)
+async def request_otp(
+    payload: OtpRequest,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await service.request_otp(db, payload.phone)
     return Response(status_code=204)
 
 
@@ -108,7 +111,7 @@ async def verify_otp(
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
 ) -> SessionResponse:
-    valid = await service.verify_otp(payload.phone, payload.code)
+    valid = await service.verify_otp(db, payload.phone, payload.code)
     if not valid:
         raise api_error(401, "unauthenticated", "invalid code")
     stmt = select(Customer).where(Customer.phone == payload.phone, Customer.restaurant_id == restaurant_id)

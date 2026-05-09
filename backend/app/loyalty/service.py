@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.loyalty.exceptions import CustomerNotFoundError, InsufficientStampsError, QrTokenAlreadyUsedError
-from app.models import Customer, StaffUser, Transaction, TransactionKind
+from app.models import Customer, PendingOtp, StaffUser, Transaction, TransactionKind
 from app.schemas import CustomerResponse, StaffPublic
 from app.security import (
     create_token,
@@ -18,9 +18,6 @@ from app.security import (
     revoke_jti,
     verify_password,
 )
-
-_otp_store: dict[str, tuple[str, datetime]] = {}
-
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -133,19 +130,29 @@ async def complete_profile_for_phone(
     return customer
 
 
-async def request_otp(phone: str) -> None:
+async def request_otp(db: AsyncSession, phone: str) -> None:
     expires = _now() + timedelta(minutes=5)
-    _otp_store[phone] = ("123456", expires)
+    async with db.begin():
+        existing = await db.get(PendingOtp, phone)
+        if existing:
+            existing.code = "123456"
+            existing.expires_at = expires
+        else:
+            db.add(PendingOtp(phone=phone, code="123456", expires_at=expires))
 
 
-async def verify_otp(phone: str, code: str) -> bool:
-    if phone not in _otp_store:
-        return False
-    otp_code, expires = _otp_store[phone]
-    if _now() > expires:
-        _otp_store.pop(phone, None)
-        return False
-    return code == otp_code
+async def verify_otp(db: AsyncSession, phone: str, code: str) -> bool:
+    async with db.begin():
+        row = await db.get(PendingOtp, phone)
+        if not row:
+            return False
+        if _now() > row.expires_at:
+            await db.delete(row)
+            return False
+        if row.code != code:
+            return False
+        await db.delete(row)
+        return True
 
 
 async def staff_login(
