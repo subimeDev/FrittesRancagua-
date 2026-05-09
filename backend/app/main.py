@@ -69,7 +69,13 @@ async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
 
 @app.get("/healthz")
 async def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+    s = get_settings()
+    return {
+        "status": "ok",
+        "jwt_secret_set": "yes" if s.jwt_secret else "NO — tokens expire on every restart",
+        "google_wallet_set": "yes" if (s.google_wallet_issuer_id and s.google_wallet_credentials_json) else "no",
+        "resend_set": "yes" if s.resend_api_key else "no",
+    }
 
 
 app.include_router(loyalty_router, prefix="/api/v1")

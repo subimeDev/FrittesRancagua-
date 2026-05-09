@@ -189,7 +189,7 @@ async def google_wallet_pass(
     try:
         url = build_save_url(customer)
         return {"url": url}
-    except ValueError as exc:
+    except Exception as exc:
         raise api_error(503, "wallet_not_configured", str(exc)) from exc
 
 
