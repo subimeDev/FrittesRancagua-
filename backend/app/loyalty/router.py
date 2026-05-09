@@ -25,6 +25,7 @@ from app.schemas import (
 )
 from app.security import create_token, decode_qr_claims, decode_token, revoke_jti
 from app.loyalty import service
+from app.loyalty.google_wallet import build_save_url
 
 router = APIRouter(prefix="/loyalty", tags=["loyalty"])
 
@@ -161,6 +162,17 @@ async def sign_out(
 async def get_qr(customer: Customer = Depends(get_current_customer)) -> QrTokenResponse:
     token, exp = service.create_qr_token(customer)
     return QrTokenResponse(token=token, exp_at=exp)
+
+
+@router.get("/passes/google/me")
+async def google_wallet_pass(
+    customer: Customer = Depends(get_current_customer),
+) -> dict[str, str]:
+    try:
+        url = build_save_url(customer)
+        return {"url": url}
+    except ValueError as exc:
+        raise api_error(503, "wallet_not_configured", str(exc)) from exc
 
 
 @router.post("/staff/auth/login", response_model=StaffSessionResponse)

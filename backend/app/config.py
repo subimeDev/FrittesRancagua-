@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     restaurant_id: str = "frittes-maison"
     resend_api_key: str | None = None
     resend_from_email: str = "onboarding@resend.dev"
+    google_wallet_issuer_id: str | None = None
+    google_wallet_credentials_json: str | None = None
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3001", "http://localhost:3002"]
     )
