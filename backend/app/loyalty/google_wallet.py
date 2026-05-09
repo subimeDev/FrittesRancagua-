@@ -8,12 +8,21 @@ from app.config import get_settings
 from app.models import Customer
 
 
+def _parse_credentials_json(raw: str) -> dict:
+    """Accept either raw JSON or Base64-encoded JSON (Railway-friendly)."""
+    raw = raw.strip()
+    if raw.startswith("{"):
+        return json.loads(raw)
+    import base64
+    return json.loads(base64.b64decode(raw).decode("utf-8"))
+
+
 def _credentials():
     import google.oauth2.service_account as sa
     settings = get_settings()
     if not settings.google_wallet_credentials_json:
         raise ValueError("GOOGLE_WALLET_CREDENTIALS_JSON not configured")
-    info = json.loads(settings.google_wallet_credentials_json)
+    info = _parse_credentials_json(settings.google_wallet_credentials_json)
     return sa.Credentials.from_service_account_info(
         info,
         scopes=["https://www.googleapis.com/auth/wallet_object.issuer"],
@@ -64,7 +73,7 @@ def build_save_url(customer: Customer) -> str:
     if not settings.google_wallet_issuer_id or not settings.google_wallet_credentials_json:
         raise ValueError("Google Wallet not configured")
 
-    creds_info = json.loads(settings.google_wallet_credentials_json)
+    creds_info = _parse_credentials_json(settings.google_wallet_credentials_json)
     signer = crypt.RSASigner.from_service_account_info(creds_info)
 
     loyalty_object = {
