@@ -20,7 +20,7 @@ export function CodeStep({
   const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""]);
   const refs = useRef<Array<HTMLInputElement | null>>([]);
   const code = useMemo(() => digits.join(""), [digits]);
-  const isComplete = code.length === 6 && !code.includes("");
+  const isComplete = code.length === 6 && !digits.includes("");
 
   async function submitCode(): Promise<void> {
     if (!isComplete || loading) return;
