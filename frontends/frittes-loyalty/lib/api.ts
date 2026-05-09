@@ -115,7 +115,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
 export type LoyaltyCustomerDto = {
   id: string;
-  customer_name: string;
+  name: string;
   phone: string;
   email?: string | null;
   stamps: number;

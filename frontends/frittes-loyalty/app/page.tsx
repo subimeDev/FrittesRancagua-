@@ -158,7 +158,7 @@ export default function HomePage(): JSX.Element {
       {/* Saludo */}
       <section className="mb-7 text-center">
         <p className="font-script text-3xl text-ink">
-          ¡Hola, {account.customer_name.split(" ")[0]}!
+          ¡Hola, {account.name.split(" ")[0]}!
         </p>
         <p className="mt-1 text-sm text-ink-muted">
           {ready

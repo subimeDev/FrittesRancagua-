@@ -107,7 +107,7 @@ export function WalletPass({
               {branding.memberLabel}
             </p>
             <p className="mt-0.5 font-display text-2xl font-semibold leading-tight text-ink">
-              {account.customer_name}
+              {account.name}
             </p>
             <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-cream-muted px-2.5 py-0.5 text-[11px] font-medium text-ink-muted">
               <span className="h-1.5 w-1.5 rounded-full bg-mustard-deep" />
