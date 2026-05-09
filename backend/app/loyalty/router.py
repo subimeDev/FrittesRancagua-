@@ -14,6 +14,7 @@ from app.schemas import (
     AccrueRequest,
     CustomerResponse,
     DevLoginRequest,
+    EmailLoginRequest,
     OtpRequest,
     OtpVerifyRequest,
     QrTokenResponse,
@@ -129,6 +130,33 @@ async def verify_otp(
         extra_claims={"phone": payload.phone},
     )
     return SessionResponse(session_token=token, customer=None)
+
+
+@router.post("/auth/email-login", response_model=SessionResponse)
+async def email_login(
+    payload: EmailLoginRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> SessionResponse:
+    email = payload.email.strip().lower()
+    if not email:
+        raise api_error(400, "invalid_input", "email is required")
+    stmt = select(Customer).where(Customer.phone == email, Customer.restaurant_id == restaurant_id)
+    customer = (await db.execute(stmt)).scalar_one_or_none()
+    if not customer:
+        raise api_error(404, "not_found", "customer not found")
+    token, _ = service.create_customer_session(customer)
+    settings = get_settings()
+    response.set_cookie(
+        "loyalty_session",
+        token,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        max_age=settings.session_ttl_minutes * 60,
+    )
+    return SessionResponse(session_token=token, customer=service.customer_to_response(customer))
 
 
 @router.get("/customers/check")

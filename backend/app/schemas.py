@@ -81,3 +81,7 @@ class OtpRequest(BaseModel):
 class OtpVerifyRequest(BaseModel):
     phone: str
     code: str = Field(min_length=4, max_length=8)
+
+
+class EmailLoginRequest(BaseModel):
+    email: str

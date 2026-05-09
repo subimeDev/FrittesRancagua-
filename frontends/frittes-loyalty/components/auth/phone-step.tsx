@@ -87,11 +87,11 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
       {/* Status message */}
       {checkStatus === "found" && foundName ? (
         <p className="text-xs font-semibold text-forest">
-          ¡Hola de nuevo, {foundName}! Te enviaremos un código a este correo.
+          ¡Hola de nuevo, {foundName}! Toca para entrar.
         </p>
       ) : checkStatus === "new" ? (
         <p className="text-xs text-ink-muted">
-          Correo no registrado — te daremos la bienvenida al verificar.
+          Correo no registrado — te pediremos tu nombre en el siguiente paso.
         </p>
       ) : null}
 
@@ -102,7 +102,7 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
         disabled={!isValid || loading || checkStatus === "checking"}
         className="inline-flex w-full items-center justify-center rounded-xl bg-mustard px-6 py-3.5 text-base font-bold text-ink transition disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {loading ? "Enviando..." : "Enviar código"}
+        {loading ? "Entrando..." : checkStatus === "found" ? "Entrar" : "Continuar"}
       </button>
     </form>
   );

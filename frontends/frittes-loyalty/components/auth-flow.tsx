@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 
-import { CodeStep } from "@/components/auth/code-step";
 import { PhoneStep } from "@/components/auth/phone-step";
 import { FrittesMark } from "@/components/frittes-mark";
 import { track } from "@/lib/analytics";
@@ -16,10 +15,9 @@ type AuthFlowProps = {
 };
 
 export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Element {
-  const { state, requestOtp, verifyOtp, completeProfile, resendSecondsLeft } = useAuth();
+  const { state, submitEmail, completeProfile } = useAuth();
   const loading = state.step === "loading";
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
@@ -33,7 +31,7 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
   async function handleProfileSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!agreed || name.trim().length < 2) return;
-    await completeProfile({ customerName: name, email: email || undefined });
+    await completeProfile({ customerName: name });
     onAuthenticated();
   }
 
@@ -50,25 +48,15 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
         </div>
       </header>
 
-      {state.step === "phone-input" || (state.step === "loading" && !state.phone) ? (
+      {state.step === "email-input" || (state.step === "loading" && !state.email) ? (
         <PhoneStep
           loading={loading}
           errorMessage={state.error?.message}
-          onSubmit={requestOtp}
+          onSubmit={submitEmail}
         />
       ) : null}
 
-      {state.step === "code-input" || (state.step === "loading" && Boolean(state.phone) && !state.token) ? (
-        <CodeStep
-          loading={loading}
-          errorMessage={state.error?.message}
-          resendSecondsLeft={resendSecondsLeft}
-          onVerify={verifyOtp}
-          onResend={() => requestOtp(state.phone)}
-        />
-      ) : null}
-
-      {state.step === "profile-input" || (state.step === "loading" && Boolean(state.token) && !state.customer) ? (
+      {state.step === "profile-input" || (state.step === "loading" && Boolean(state.email) && !state.customer) ? (
         <form
           onSubmit={(event) => {
             void handleProfileSubmit(event);
@@ -76,8 +64,9 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
           className="space-y-4 rounded-pass border border-line bg-cream-elev p-6 shadow-card"
         >
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">Ultimo paso</p>
-            <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">Completa tu perfil</h2>
+            <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">Bienvenido</p>
+            <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">Crea tu pase</h2>
+            <p className="mt-1 text-xs text-ink-muted">{state.email}</p>
           </div>
           <input
             required
@@ -85,13 +74,6 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
             placeholder="Nombre y apellido"
             value={name}
             onChange={(event) => setName(event.target.value)}
-            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink"
-          />
-          <input
-            type="email"
-            placeholder="Email (opcional)"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
             className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink"
           />
           <label className="flex items-start gap-2 text-xs text-ink-muted">
