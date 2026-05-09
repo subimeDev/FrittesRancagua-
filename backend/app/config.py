@@ -14,6 +14,18 @@ class Settings(BaseSettings):
 
     app_env: Literal["dev", "prod"] = "dev"
     database_url: str = "sqlite+aiosqlite:///./data/app.db"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_db_url(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        # Railway entrega postgresql:// o postgres://, SQLAlchemy async necesita postgresql+asyncpg://
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://"):]
+        if value.startswith("postgresql://"):
+            return "postgresql+asyncpg://" + value[len("postgresql://"):]
+        return value
     jwt_secret: str | None = None
     jwt_alg: str = "HS256"
     session_ttl_minutes: int = 602430
