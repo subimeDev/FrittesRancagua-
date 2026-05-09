@@ -25,7 +25,7 @@ from app.schemas import (
 )
 from app.security import create_token, decode_qr_claims, decode_token, revoke_jti
 from app.loyalty import service
-from app.loyalty.google_wallet import build_save_url
+from app.loyalty.google_wallet import build_save_url, create_loyalty_class_if_needed
 
 router = APIRouter(prefix="/loyalty", tags=["loyalty"])
 
@@ -187,6 +187,9 @@ async def google_wallet_pass(
     customer: Customer = Depends(get_current_customer),
 ) -> dict[str, str]:
     try:
+        # We call this here to ensure the class exists before generating the link.
+        # In a high-traffic app, this should be done once on startup or cached.
+        create_loyalty_class_if_needed()
         url = build_save_url(customer)
         return {"url": url}
     except Exception as exc:

@@ -1,20 +1,27 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 
 from app.config import get_settings
 from app.models import Customer
 
+logger = logging.getLogger(__name__)
+
 
 def _parse_credentials_json(raw: str) -> dict:
     """Accept either raw JSON or Base64-encoded JSON (Railway-friendly)."""
     raw = raw.strip()
-    if raw.startswith("{"):
-        return json.loads(raw)
-    import base64
-    return json.loads(base64.b64decode(raw).decode("utf-8"))
+    try:
+        if raw.startswith("{"):
+            return json.loads(raw)
+        import base64
+        return json.loads(base64.b64decode(raw).decode("utf-8"))
+    except Exception as e:
+        logger.error("Failed to parse GOOGLE_WALLET_CREDENTIALS_JSON: %s", e)
+        raise ValueError(f"Invalid credentials JSON format: {e}") from e
 
 
 def _credentials():
@@ -31,38 +38,53 @@ def _credentials():
 
 def _class_id() -> str:
     settings = get_settings()
+    if not settings.google_wallet_issuer_id:
+        raise ValueError("GOOGLE_WALLET_ISSUER_ID not configured")
     return f"{settings.google_wallet_issuer_id}.frittes-loyalty"
 
 
 def _object_id(customer_id: str) -> str:
     settings = get_settings()
-    return f"{settings.google_wallet_issuer_id}.{customer_id}"
+    # Ensure ID doesn't have hyphens if it's a UUID, although Google allows them, 
+    # some older implementations/parsers prefer alphanumeric.
+    clean_id = customer_id.replace("-", "")
+    return f"{settings.google_wallet_issuer_id}.{clean_id}"
 
 
 def create_loyalty_class_if_needed() -> None:
     import googleapiclient.discovery  # type: ignore[import-untyped]
-    creds = _credentials()
-    service = googleapiclient.discovery.build("walletobjects", "v1", credentials=creds)
-    class_id = _class_id()
     try:
-        service.loyaltyclass().get(resourceId=class_id).execute()
-        return
-    except Exception:
+        creds = _credentials()
+        service = googleapiclient.discovery.build("walletobjects", "v1", credentials=creds)
+        class_id = _class_id()
+        try:
+            service.loyaltyclass().get(resourceId=class_id).execute()
+            logger.info("Google Wallet LoyaltyClass %s already exists", class_id)
+            return
+        except Exception:
+            logger.info("Google Wallet LoyaltyClass %s not found, creating...", class_id)
+            pass
+
+        loyalty_class = {
+            "id": class_id,
+            "issuerName": "Frittes Maison",
+            "programName": "Club Frittes",
+            "programLogo": {
+                "sourceUri": {"uri": "https://frittesrancagua-production.up.railway.app/icons/icon-192.png"},
+                "contentDescription": {"defaultValue": {"language": "es", "value": "Logo Frittes"}},
+            },
+            "rewardsTier": "Maisonero",
+            "rewardsTierLabel": "Nivel",
+            "reviewStatus": "UNDER_REVIEW",
+            "hexBackgroundColor": "#F5C842",
+        }
+        service.loyaltyclass().insert(body=loyalty_class).execute()
+        logger.info("Google Wallet LoyaltyClass %s created successfully", class_id)
+    except Exception as e:
+        logger.error("Failed to create Google Wallet class: %s", e)
+        # We don't raise here to avoid blocking the main flow if it's already there 
+        # but the check failed for some other reason.
         pass
-    loyalty_class = {
-        "id": class_id,
-        "issuerName": "Frittes Maison",
-        "programName": "Club Frittes",
-        "programLogo": {
-            "sourceUri": {"uri": "https://frittesrancagua-production.up.railway.app/icon-192.png"},
-            "contentDescription": {"defaultValue": {"language": "es", "value": "Logo Frittes"}},
-        },
-        "rewardsTier": "Maisonero",
-        "rewardsTierLabel": "Nivel",
-        "reviewStatus": "UNDER_REVIEW",
-        "hexBackgroundColor": "#F5C842",
-    }
-    service.loyaltyclass().insert(body=loyalty_class).execute()
 
 
 def build_save_url(customer: Customer) -> str:
