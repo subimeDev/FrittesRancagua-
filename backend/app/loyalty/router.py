@@ -131,6 +131,24 @@ async def verify_otp(
     return SessionResponse(session_token=token, customer=None)
 
 
+@router.get("/customers/check")
+async def check_customer(
+    email: str,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> dict[str, object]:
+    clean = email.strip().lower()
+    stmt = select(Customer).where(
+        Customer.phone == clean,
+        Customer.restaurant_id == restaurant_id,
+    )
+    customer = (await db.execute(stmt)).scalar_one_or_none()
+    if customer:
+        first = customer.name.split()[0] if customer.name else customer.name
+        return {"exists": True, "name": first}
+    return {"exists": False}
+
+
 @router.get("/customers/me", response_model=CustomerResponse)
 async def me(customer: Customer = Depends(get_current_customer)) -> CustomerResponse:
     return service.customer_to_response(customer)
