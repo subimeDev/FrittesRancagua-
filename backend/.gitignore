@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.venv/
+data/*.db
+.env
+.env.local

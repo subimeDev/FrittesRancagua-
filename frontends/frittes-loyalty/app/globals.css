@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  body {
+    background: var(--brand-cream);
+    color: var(--brand-ink);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+@layer utilities {
+  /* Textura de papel rugoso replicada del menu impreso. */
+  .bg-paper {
+    background-image:
+      radial-gradient(circle at 15% 20%, rgb(0 0 0 / 0.025), transparent 45%),
+      radial-gradient(circle at 80% 70%, rgb(0 0 0 / 0.02), transparent 50%),
+      radial-gradient(circle at 50% 50%, rgb(0 0 0 / 0.012), transparent 80%);
+  }
+
+  /* Blobs amarillos al estilo del menu Frittes. */
+  .blob-mustard-tl {
+    position: absolute;
+    inset: auto auto auto 0;
+    top: 0;
+    width: 38%;
+    height: 32%;
+    background: var(--brand-mustard);
+    border-radius: 0 0 100% 0 / 0 0 100% 0;
+    opacity: 0.95;
+    pointer-events: none;
+  }
+  .blob-mustard-br {
+    position: absolute;
+    inset: auto 0 0 auto;
+    bottom: 0;
+    width: 28%;
+    height: 22%;
+    background: var(--brand-mustard);
+    border-radius: 100% 0 0 0 / 100% 0 0 0;
+    opacity: 0.95;
+    pointer-events: none;
+  }
+  .blob-forest-bl {
+    position: absolute;
+    inset: auto auto 0 0;
+    bottom: 0;
+    width: 30%;
+    height: 24%;
+    background: var(--brand-forest);
+    border-radius: 0 100% 0 0 / 0 100% 0 0;
+    opacity: 0.95;
+    pointer-events: none;
+  }
+
+  /* Marca dotted estilo carta tradicional. */
+  .dotted-line {
+    background-image: radial-gradient(circle, currentColor 1px, transparent 1.5px);
+    background-size: 8px 1px;
+    background-repeat: repeat-x;
+    background-position: 0 center;
+  }
+
+  /* Brillo lateral animado sobre superficies oscuras. */
+  .pass-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      120deg,
+      transparent 30%,
+      rgb(255 255 255 / 0.18) 50%,
+      transparent 70%
+    );
+    opacity: 0;
+    transition: opacity 600ms ease;
+    pointer-events: none;
+  }
+  .pass-shine:hover::after {
+    opacity: 1;
+  }
+
+  /* Animacion entrada del pase desde abajo. */
+  @keyframes pass-rise {
+    0% {
+      transform: translateY(40px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  .animate-pass-rise {
+    animation: pass-rise 600ms ease-out backwards;
+  }
+
+  /* Sello "stamp-in" cuando se agrega un sello. */
+  @keyframes stamp-in {
+    0% {
+      transform: scale(0.4) rotate(-12deg);
+      opacity: 0;
+    }
+    60% {
+      transform: scale(1.15) rotate(4deg);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1) rotate(0deg);
+      opacity: 1;
+    }
+  }
+  .animate-stamp-in {
+    animation: stamp-in 350ms ease-out;
+  }
+}
