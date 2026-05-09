@@ -5,19 +5,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, type TransactionResult, accrue, redeem } from "@/lib/api";
 
-type UiState = "scanner" | "customer-card" | "confirmation" | "error";
+type UiState = "auth-check" | "dashboard" | "scanner" | "customer-card" | "confirmation" | "error";
+
+type Staff = { id: string; email: string; name: string; role: string };
 
 type CustomerCard = {
-  name: string;
-  balance: number;
   qrToken: string;
 };
 
 export default function PosHomePage(): JSX.Element {
   const router = useRouter();
+  const [uiState, setUiState] = useState<UiState>("auth-check");
   const [sessionToken, setSessionToken] = useState<string | null>(null);
-  const [staffName, setStaffName] = useState("");
-  const [state, setState] = useState<UiState>("scanner");
+  const [staff, setStaff] = useState<Staff | null>(null);
   const [customer, setCustomer] = useState<CustomerCard | null>(null);
   const [result, setResult] = useState<TransactionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
@@ -29,22 +29,31 @@ export default function PosHomePage(): JSX.Element {
   const rafRef = useRef<number>(0);
   const detectedRef = useRef(false);
 
+  // Auth check on mount
   useEffect(() => {
     const token = localStorage.getItem("frittes-pos:session");
     if (!token) {
       router.replace("/login");
       return;
     }
-    setSessionToken(token);
     try {
-      const staff = JSON.parse(localStorage.getItem("frittes-pos:staff") ?? "{}") as {
-        name?: string;
-      };
-      setStaffName(staff.name ?? "");
+      const staffData = JSON.parse(
+        localStorage.getItem("frittes-pos:staff") ?? "null",
+      ) as Staff | null;
+      setSessionToken(token);
+      setStaff(staffData);
+      setUiState("dashboard");
     } catch {
-      // ignore
+      router.replace("/login");
     }
   }, [router]);
+
+  // Auto-return after confirmation
+  useEffect(() => {
+    if (uiState !== "confirmation") return;
+    const t = window.setTimeout(() => setUiState("dashboard"), 3000);
+    return () => window.clearTimeout(t);
+  }, [uiState]);
 
   const stopCamera = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -79,13 +88,12 @@ export default function PosHomePage(): JSX.Element {
         ctx.drawImage(video, 0, 0);
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-        // Use BarcodeDetector if available (Chrome/Android), else skip frame
         if ("BarcodeDetector" in window) {
           const detector = new (
             window as unknown as {
-              BarcodeDetector: new (opts: {
-                formats: string[];
-              }) => { detect: (img: ImageData) => Promise<Array<{ rawValue: string }>> };
+              BarcodeDetector: new (opts: { formats: string[] }) => {
+                detect: (img: ImageData) => Promise<Array<{ rawValue: string }>>;
+              };
             }
           ).BarcodeDetector({ formats: ["qr_code"] });
           void detector.detect(imageData).then((codes) => {
@@ -98,7 +106,6 @@ export default function PosHomePage(): JSX.Element {
             }
           });
         } else {
-          // Fallback: dynamic import jsqr
           void import("jsqr").then(({ default: jsQR }) => {
             const code = jsQR(imageData.data, imageData.width, imageData.height);
             if (code && !detectedRef.current) {
@@ -111,33 +118,29 @@ export default function PosHomePage(): JSX.Element {
           });
         }
       };
-
       rafRef.current = requestAnimationFrame(scan);
     } catch {
-      setErrorMsg("No se pudo acceder a la cámara.");
-      setState("error");
+      setErrorMsg("No se pudo acceder a la cámara. Verifica los permisos.");
+      setUiState("error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopCamera]);
 
+  // Stop camera when leaving scanner
   useEffect(() => {
-    if (state === "scanner" && sessionToken) {
-      void startCamera();
-    }
-    return () => {
-      if (state !== "scanner") stopCamera();
-    };
-  }, [state, sessionToken, startCamera, stopCamera]);
-
-  useEffect(() => {
-    if (state !== "confirmation") return;
-    const t = window.setTimeout(() => setState("scanner"), 3000);
-    return () => window.clearTimeout(t);
-  }, [state]);
+    if (uiState !== "scanner") stopCamera();
+  }, [uiState, stopCamera]);
 
   function onQrDetected(qrData: string): void {
-    setCustomer({ name: "...", balance: 0, qrToken: qrData });
-    setState("customer-card");
+    setCustomer({ qrToken: qrData });
+    setUiState("customer-card");
+  }
+
+  function handleSignOut(): void {
+    stopCamera();
+    localStorage.removeItem("frittes-pos:session");
+    localStorage.removeItem("frittes-pos:staff");
+    router.push("/login");
   }
 
   async function handleAccrue(): Promise<void> {
@@ -146,18 +149,18 @@ export default function PosHomePage(): JSX.Element {
     try {
       const tx = await accrue(customer.qrToken, sessionToken);
       setResult(tx);
-      setState("confirmation");
+      setUiState("confirmation");
     } catch (err) {
-      const msg =
+      setErrorMsg(
         err instanceof ApiError
           ? err.code === "qr_expired"
-            ? "QR expirado. Pide al cliente que refresque."
+            ? "QR expirado. Pide al cliente que refresque su app."
             : err.code === "qr_replayed"
-              ? "QR ya usado. Pide un QR nuevo."
+              ? "QR ya usado. Pide al cliente un nuevo QR."
               : err.message
-          : "Error al sumar sello.";
-      setErrorMsg(msg);
-      setState("error");
+          : "Error al sumar sello.",
+      );
+      setUiState("error");
     } finally {
       setActionLoading(false);
     }
@@ -169,110 +172,213 @@ export default function PosHomePage(): JSX.Element {
     try {
       const tx = await redeem(customer.qrToken, sessionToken);
       setResult(tx);
-      setState("confirmation");
+      setUiState("confirmation");
     } catch (err) {
-      const msg =
+      setErrorMsg(
         err instanceof ApiError
           ? err.code === "insufficient_stamps"
-            ? "No tiene suficientes sellos para canjear."
+            ? "El cliente no tiene suficientes sellos para canjear."
             : err.code === "qr_expired"
-              ? "QR expirado. Pide al cliente que refresque."
+              ? "QR expirado. Pide al cliente que refresque su app."
               : err.message
-          : "Error al canjear premio.";
-      setErrorMsg(msg);
-      setState("error");
+          : "Error al canjear premio.",
+      );
+      setUiState("error");
     } finally {
       setActionLoading(false);
     }
   }
 
+  if (uiState === "auth-check") {
+    return (
+      <main className="grid min-h-screen place-items-center">
+        <p className="text-sm text-black/40">Cargando...</p>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto min-h-screen max-w-lg px-5 py-6">
-      <header className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Frittes POS</h1>
-          {staffName ? <p className="text-xs text-black/50">{staffName}</p> : null}
+    <main className="mx-auto min-h-screen max-w-lg bg-cream px-5 py-6">
+      {/* Header */}
+      <header className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-mustard font-bold text-ink text-sm">
+            F
+          </div>
+          <div>
+            <p className="font-bold leading-tight text-ink">Frittes POS</p>
+            {staff ? (
+              <p className="text-xs text-black/50">{staff.name}</p>
+            ) : null}
+          </div>
         </div>
         <button
           type="button"
-          className="rounded-lg border border-line px-3 py-1 text-sm"
-          onClick={() => {
-            localStorage.removeItem("frittes-pos:session");
-            localStorage.removeItem("frittes-pos:staff");
-            router.push("/login");
-          }}
+          onClick={handleSignOut}
+          className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-black/70 hover:bg-gray-50"
         >
-          Salir
+          Cerrar sesión
         </button>
       </header>
 
-      {state === "scanner" ? (
-        <section className="space-y-3 rounded-xl border border-line bg-white p-4">
-          <h2 className="text-lg font-semibold">Escanear QR del cliente</h2>
-          <div className="relative overflow-hidden rounded-lg bg-black" style={{ aspectRatio: "1" }}>
-            <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-            <canvas ref={canvasRef} className="hidden" />
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="h-48 w-48 rounded-xl border-4 border-mustard opacity-70" />
+      {/* Dashboard */}
+      {uiState === "dashboard" ? (
+        <section className="space-y-4">
+          <div className="rounded-2xl border border-line bg-white p-6">
+            <p className="text-xs font-semibold uppercase tracking-widest text-black/40">
+              Bienvenido
+            </p>
+            <p className="mt-1 text-2xl font-bold text-ink">
+              {staff?.name ?? "Cajero"}
+            </p>
+            <p className="mt-1 text-sm text-black/50">
+              Escanea el QR del cliente para sumar sellos o canjear premios.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setUiState("scanner");
+              void startCamera();
+            }}
+            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-ink px-6 py-5 text-lg font-bold text-white shadow-sm active:scale-95 transition-transform"
+          >
+            <span className="text-2xl">📷</span>
+            Escanear QR del cliente
+          </button>
+
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-2xl font-bold text-mustard-deep">+1</p>
+              <p className="mt-1 text-xs text-black/50">Sello por visita</p>
+            </div>
+            <div className="rounded-2xl border border-line bg-white p-4">
+              <p className="text-2xl font-bold text-forest">10</p>
+              <p className="mt-1 text-xs text-black/50">Sellos para premio</p>
             </div>
           </div>
-          <p className="text-center text-sm text-black/50">Apunta la cámara al código QR del cliente</p>
         </section>
       ) : null}
 
-      {state === "customer-card" && customer ? (
-        <section className="space-y-4 rounded-xl border border-line bg-white p-4">
-          <h2 className="text-lg font-semibold">Cliente detectado</h2>
-          <p className="font-mono text-xs text-black/40 break-all">{customer.qrToken.slice(0, 40)}…</p>
-          <div className="grid grid-cols-2 gap-2">
+      {/* Scanner */}
+      {uiState === "scanner" ? (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={actionLoading}
-              className="rounded-lg bg-forest px-4 py-4 text-lg font-bold text-white disabled:opacity-60"
-              onClick={() => { void handleAccrue(); }}
+              onClick={() => setUiState("dashboard")}
+              className="text-sm text-black/50 underline"
             >
-              {actionLoading ? "..." : "Sumar sello"}
+              ← Volver
             </button>
+            <p className="text-sm font-semibold text-ink">Escanear QR</p>
+          </div>
+          <div
+            className="relative overflow-hidden rounded-2xl bg-black"
+            style={{ aspectRatio: "1" }}
+          >
+            <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+            <canvas ref={canvasRef} className="hidden" />
+            {/* Viewfinder overlay */}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="relative h-52 w-52">
+                <span className="absolute left-0 top-0 h-8 w-8 rounded-tl-xl border-l-4 border-t-4 border-mustard" />
+                <span className="absolute right-0 top-0 h-8 w-8 rounded-tr-xl border-r-4 border-t-4 border-mustard" />
+                <span className="absolute bottom-0 left-0 h-8 w-8 rounded-bl-xl border-b-4 border-l-4 border-mustard" />
+                <span className="absolute bottom-0 right-0 h-8 w-8 rounded-br-xl border-b-4 border-r-4 border-mustard" />
+              </div>
+            </div>
+          </div>
+          <p className="text-center text-sm text-black/50">
+            Apunta la cámara al código QR del cliente
+          </p>
+        </section>
+      ) : null}
+
+      {/* Customer Card */}
+      {uiState === "customer-card" && customer ? (
+        <section className="space-y-4">
+          <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={actionLoading}
-              className="rounded-lg bg-mustard px-4 py-4 text-lg font-bold text-ink disabled:opacity-60"
-              onClick={() => { void handleRedeem(); }}
+              onClick={() => {
+                setUiState("scanner");
+                void startCamera();
+              }}
+              className="text-sm text-black/50 underline"
             >
-              {actionLoading ? "..." : "Canjear premio"}
+              ← Volver a escanear
             </button>
           </div>
-          <button
-            type="button"
-            className="w-full text-sm text-black/50 underline"
-            onClick={() => setState("scanner")}
-          >
-            Cancelar — volver al scanner
-          </button>
-        </section>
-      ) : null}
-
-      {state === "confirmation" && result ? (
-        <section className="rounded-xl border border-line bg-white p-6 text-center space-y-2">
-          <p className="text-4xl">✓</p>
-          <p className="text-xl font-semibold text-forest">
-            {result.kind === "accrual" ? "Sello sumado" : "Premio canjeado"}
+          <div className="rounded-2xl border border-line bg-white p-6">
+            <p className="text-xs font-semibold uppercase tracking-widest text-black/40">
+              Cliente verificado
+            </p>
+            <p className="mt-1 text-sm font-mono text-black/30 break-all">
+              {customer.qrToken.slice(0, 48)}…
+            </p>
+          </div>
+          <p className="text-center text-sm font-medium text-black/60">
+            Selecciona la acción a realizar:
           </p>
-          <p className="text-lg font-bold">{result.customer_name}</p>
-          <p className="text-black/60">Saldo actual: {result.new_balance} sellos</p>
-          <p className="mt-2 text-sm text-black/40">Volviendo al scanner en 3s...</p>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={() => { void handleAccrue(); }}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-forest px-4 py-6 font-bold text-white shadow-sm active:scale-95 transition-transform disabled:opacity-60"
+            >
+              <span className="text-3xl">⭐</span>
+              <span className="text-lg">Sumar sello</span>
+            </button>
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={() => { void handleRedeem(); }}
+              className="flex flex-col items-center gap-2 rounded-2xl bg-mustard px-4 py-6 font-bold text-ink shadow-sm active:scale-95 transition-transform disabled:opacity-60"
+            >
+              <span className="text-3xl">🎁</span>
+              <span className="text-lg">Canjear premio</span>
+            </button>
+          </div>
+          {actionLoading ? (
+            <p className="text-center text-sm text-black/50">Procesando...</p>
+          ) : null}
         </section>
       ) : null}
 
-      {state === "error" ? (
-        <section className="rounded-xl border border-red-200 bg-red-50 p-6 text-center space-y-3">
-          <p className="text-xl font-semibold text-red-700">{errorMsg}</p>
+      {/* Confirmation */}
+      {uiState === "confirmation" && result ? (
+        <section className="rounded-2xl border border-line bg-white p-8 text-center space-y-3">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+            <span className="text-3xl">✓</span>
+          </div>
+          <p className="text-xl font-bold text-ink">
+            {result.kind === "accrual" ? "¡Sello sumado!" : "¡Premio canjeado!"}
+          </p>
+          <p className="text-2xl font-bold text-forest">{result.customer_name}</p>
+          <div className="rounded-xl bg-cream px-4 py-3">
+            <p className="text-sm text-black/50">Saldo actual</p>
+            <p className="text-3xl font-bold text-ink">{result.new_balance} sellos</p>
+          </div>
+          <p className="text-xs text-black/30">Volviendo al panel en 3s...</p>
+        </section>
+      ) : null}
+
+      {/* Error */}
+      {uiState === "error" ? (
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center space-y-4">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+            <span className="text-3xl">✕</span>
+          </div>
+          <p className="text-lg font-semibold text-red-700">{errorMsg}</p>
           <button
             type="button"
-            className="rounded-lg bg-ink px-6 py-2 text-white"
-            onClick={() => setState("scanner")}
+            className="rounded-xl bg-ink px-8 py-3 font-semibold text-white"
+            onClick={() => setUiState("dashboard")}
           >
-            Volver al scanner
+            Volver al panel
           </button>
         </section>
       ) : null}
