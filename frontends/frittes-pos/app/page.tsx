@@ -158,6 +158,16 @@ export default function PosHomePage(): JSX.Element {
     router.push("/login");
   }
 
+  function handleApiError(err: unknown, fallback: string): string {
+    if (!(err instanceof ApiError)) return fallback;
+    if (err.status === 401) return "Sesión expirada. Vuelve a iniciar sesión.";
+    if (err.code === "qr_expired") return "QR expirado. Pide al cliente que refresque su app.";
+    if (err.code === "qr_replayed") return "QR ya usado. Pide al cliente un nuevo QR.";
+    if (err.code === "qr_invalid") return "QR inválido. Pide al cliente que refresque su app.";
+    if (err.code === "insufficient_stamps") return "El cliente no tiene suficientes sellos para canjear.";
+    return err.message || fallback;
+  }
+
   async function handleAccrue(): Promise<void> {
     if (!customer || !sessionToken) return;
     setActionLoading(true);
@@ -166,15 +176,11 @@ export default function PosHomePage(): JSX.Element {
       setResult(tx);
       setUiState("confirmation");
     } catch (err) {
-      setErrorMsg(
-        err instanceof ApiError
-          ? err.code === "qr_expired"
-            ? "QR expirado. Pide al cliente que refresque su app."
-            : err.code === "qr_replayed"
-              ? "QR ya usado. Pide al cliente un nuevo QR."
-              : err.message
-          : "Error al sumar sello.",
-      );
+      if (err instanceof ApiError && err.status === 401) {
+        handleSignOut();
+        return;
+      }
+      setErrorMsg(handleApiError(err, "Error al sumar sello."));
       setUiState("error");
     } finally {
       setActionLoading(false);
@@ -189,15 +195,11 @@ export default function PosHomePage(): JSX.Element {
       setResult(tx);
       setUiState("confirmation");
     } catch (err) {
-      setErrorMsg(
-        err instanceof ApiError
-          ? err.code === "insufficient_stamps"
-            ? "El cliente no tiene suficientes sellos para canjear."
-            : err.code === "qr_expired"
-              ? "QR expirado. Pide al cliente que refresque su app."
-              : err.message
-          : "Error al canjear premio.",
-      );
+      if (err instanceof ApiError && err.status === 401) {
+        handleSignOut();
+        return;
+      }
+      setErrorMsg(handleApiError(err, "Error al canjear premio."));
       setUiState("error");
     } finally {
       setActionLoading(false);
