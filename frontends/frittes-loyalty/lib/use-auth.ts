@@ -120,7 +120,7 @@ export function useAuth(): {
     async (input: RegisterProfileInput): Promise<LoyaltyCustomerDto> => {
       setState((prev) => ({ ...prev, step: "loading", error: null }));
       try {
-        const customer = await apiRequest<LoyaltyCustomerDto>("/loyalty/customers", {
+        const response = await apiRequest<OtpVerifyResponseDto>("/loyalty/customers", {
           method: "POST",
           token: state.token ?? undefined,
           body: {
@@ -128,10 +128,17 @@ export function useAuth(): {
             email: input.email || undefined,
           },
         });
+        await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: response.session_token }),
+        });
         track("signup_completed");
 
+        const customer = response.customer!;
         setState((prev) => ({
           ...prev,
+          token: response.session_token,
           customer,
           step: "authenticated",
           error: null,
