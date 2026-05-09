@@ -121,6 +121,6 @@ def build_save_url(customer: Customer) -> str:
         "payload": {"loyaltyObjects": [loyalty_object]},
     }
 
-    token = gjwt.encode(payload, signer)
+    token = gjwt.encode(signer, payload)
     jwt_str = token if isinstance(token, str) else token.decode("utf-8")
     return f"https://pay.google.com/gp/v/save/{jwt_str}"
