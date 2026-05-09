@@ -15,6 +15,7 @@ from app.loyalty.exceptions import (
     QrTokenExpiredError,
     QrTokenInvalidError,
 )
+from app.loyalty.admin_router import router as admin_router
 from app.loyalty.router import router as loyalty_router
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ app = FastAPI(title="Frittes Loyalty API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Cookie", "X-Restaurant-Id"],
     allow_credentials=True,
 )
@@ -72,3 +73,4 @@ async def healthz() -> dict[str, str]:
 
 
 app.include_router(loyalty_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")

@@ -263,6 +263,17 @@ export default function PosHomePage(): JSX.Element {
             Escanear QR del cliente
           </button>
 
+          {staff?.role === "manager" ? (
+            <button
+              type="button"
+              onClick={() => router.push("/admin")}
+              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-line bg-white px-6 py-4 text-base font-semibold text-ink shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-xl">⚙️</span>
+              Panel de administración
+            </button>
+          ) : null}
+
           <div className="grid grid-cols-2 gap-3 text-center">
             <div className="rounded-2xl border border-line bg-white p-4">
               <p className="text-2xl font-bold text-mustard-deep">+1</p>
