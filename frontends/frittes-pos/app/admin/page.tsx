@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError } from "@/lib/api";
 
@@ -91,6 +91,20 @@ async function adminRequest<T>(
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function AdminPage(): JSX.Element {
+  return (
+    <Suspense
+      fallback={
+        <main className="grid min-h-screen place-items-center bg-cream">
+          <p className="text-sm text-black/40">Cargando panel...</p>
+        </main>
+      }
+    >
+      <AdminPageInner />
+    </Suspense>
+  );
+}
+
+function AdminPageInner(): JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [token, setToken] = useState<string | null>(null);
