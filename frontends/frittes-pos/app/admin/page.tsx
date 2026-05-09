@@ -111,11 +111,6 @@ function AdminPageInner(): JSX.Element {
   const [staff, setStaff] = useState<Staff | null>(null);
   const initialTab = (searchParams.get("tab") as Tab | null) ?? "stats";
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [transactions, setTransactions] = useState<TxRow[]>([]);
-  const [staffList, setStaffList] = useState<StaffRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   const isManager = staff?.role === "manager";
 
@@ -135,58 +130,10 @@ function AdminPageInner(): JSX.Element {
     }
   }, [staff, isManager, tab]);
 
-  const loadStats = useCallback(async (t: string) => {
-    const data = await adminRequest<AdminStats>("/loyalty/admin/stats", t);
-    setStats(data);
-  }, []);
-
-  const loadTransactions = useCallback(async (t: string) => {
-    const data = await adminRequest<TxRow[]>("/loyalty/admin/transactions?limit=60", t);
-    setTransactions(data);
-  }, []);
-
-  const loadStaff = useCallback(async (t: string) => {
-    const data = await adminRequest<StaffRow[]>("/loyalty/admin/staff", t);
-    setStaffList(data);
-  }, []);
-
-  // Load data once authenticated. Customers tab loads its own data lazily.
-  useEffect(() => {
-    if (!token || !staff) return;
-    setLoading(true);
-    const tasks: Array<Promise<void>> = [
-      loadStats(token),
-      loadTransactions(token),
-    ];
-    if (staff.role === "manager") tasks.push(loadStaff(token));
-    Promise.all(tasks)
-      .catch((err: unknown) => {
-        setError(err instanceof ApiError ? err.message : "Error al cargar datos");
-      })
-      .finally(() => setLoading(false));
-  }, [token, staff, loadStats, loadTransactions, loadStaff]);
-
-  if (loading) {
+  if (!token || !staff) {
     return (
       <main className="grid min-h-screen place-items-center bg-cream">
         <p className="text-sm text-black/40">Cargando panel...</p>
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-cream">
-        <div className="text-center space-y-3">
-          <p className="text-red-600 font-semibold">{error}</p>
-          <button
-            type="button"
-            onClick={() => router.replace("/login")}
-            className="rounded-xl bg-ink px-6 py-2.5 text-sm font-semibold text-white"
-          >
-            Volver al inicio
-          </button>
-        </div>
       </main>
     );
   }
@@ -207,7 +154,8 @@ function AdminPageInner(): JSX.Element {
           <img
             src="/frittes-logo.jpg"
             alt="Frittes Maison"
-            className="h-10 w-auto object-contain"
+            className="h-14 w-auto object-contain"
+            style={{ mixBlendMode: "multiply" }}
           />
           <div className="border-l border-line pl-3 text-left">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">
@@ -241,21 +189,16 @@ function AdminPageInner(): JSX.Element {
         ))}
       </nav>
 
-      {tab === "stats" && stats && <StatsTab stats={stats} />}
-      {tab === "customers" && token && (
+      {tab === "stats" && <StatsTab token={token} />}
+      {tab === "customers" && (
         <CustomersTab
           token={token}
           initialWithCoupon={searchParams.get("with_coupon") === "1"}
         />
       )}
-      {tab === "transactions" && <TransactionsTab transactions={transactions} />}
-      {tab === "staff" && isManager && token && (
-        <StaffTab
-          staffList={staffList}
-          token={token}
-          currentStaffId={staff?.id ?? ""}
-          onRefresh={() => { void loadStaff(token).catch(() => null); }}
-        />
+      {tab === "transactions" && <TransactionsTab token={token} />}
+      {tab === "staff" && isManager && (
+        <StaffTab token={token} currentStaffId={staff?.id ?? ""} />
       )}
     </main>
   );
@@ -263,7 +206,26 @@ function AdminPageInner(): JSX.Element {
 
 // ─── Stats Tab ────────────────────────────────────────────────────────────────
 
-function StatsTab({ stats }: { stats: AdminStats }): JSX.Element {
+function StatsTab({ token }: { token: string }): JSX.Element {
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    adminRequest<AdminStats>("/loyalty/admin/stats", token)
+      .then(setStats)
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message || "No se pudo cargar el resumen" : "No se pudo cargar el resumen");
+      })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <TabLoading />;
+  if (error) return <TabError message={error} />;
+  if (!stats) return <TabError message="Sin datos" />;
+
   return (
     <section className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -272,6 +234,22 @@ function StatsTab({ stats }: { stats: AdminStats }): JSX.Element {
         <StatCard label="Premios canjeados" value={stats.total_redemptions} color="text-mustard-deep" />
       </div>
     </section>
+  );
+}
+
+function TabLoading(): JSX.Element {
+  return (
+    <p className="rounded-2xl border border-line bg-white p-8 text-center text-sm text-black/40">
+      Cargando…
+    </p>
+  );
+}
+
+function TabError({ message }: { message: string }): JSX.Element {
+  return (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+      <p className="text-sm font-semibold text-red-700">{message}</p>
+    </div>
   );
 }
 
@@ -417,7 +395,25 @@ function FilterPill({ active, onClick, label }: { active: boolean; onClick: () =
 
 // ─── Transactions Tab ─────────────────────────────────────────────────────────
 
-function TransactionsTab({ transactions }: { transactions: TxRow[] }): JSX.Element {
+function TransactionsTab({ token }: { token: string }): JSX.Element {
+  const [transactions, setTransactions] = useState<TxRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setLoading(true);
+    setError("");
+    adminRequest<TxRow[]>("/loyalty/admin/transactions?limit=60", token)
+      .then(setTransactions)
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message || "No se pudieron cargar los movimientos" : "No se pudieron cargar los movimientos");
+      })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <TabLoading />;
+  if (error) return <TabError message={error} />;
+
   return (
     <section className="space-y-2">
       <p className="text-xs text-black/40">Últimos {transactions.length} movimientos</p>
@@ -457,18 +453,30 @@ function TransactionsTab({ transactions }: { transactions: TxRow[] }): JSX.Eleme
 // ─── Staff Tab ────────────────────────────────────────────────────────────────
 
 function StaffTab({
-  staffList,
   token,
   currentStaffId,
-  onRefresh,
 }: {
-  staffList: StaffRow[];
   token: string;
   currentStaffId: string;
-  onRefresh: () => void;
 }): JSX.Element {
+  const [staffList, setStaffList] = useState<StaffRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setError("");
+    adminRequest<StaffRow[]>("/loyalty/admin/staff", token)
+      .then(setStaffList)
+      .catch((err: unknown) => {
+        setError(err instanceof ApiError ? err.message || "No se pudo cargar el equipo" : "No se pudo cargar el equipo");
+      })
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   async function toggleActive(s: StaffRow): Promise<void> {
     setToggling(s.id);
@@ -477,11 +485,14 @@ function StaffTab({
         method: "PATCH",
         body: { is_active: !s.is_active },
       });
-      onRefresh();
+      refresh();
     } finally {
       setToggling(null);
     }
   }
+
+  if (loading) return <TabLoading />;
+  if (error) return <TabError message={error} />;
 
   return (
     <section className="space-y-4">
@@ -540,7 +551,7 @@ function StaffTab({
         <CreateStaffModal
           token={token}
           onClose={() => setShowForm(false)}
-          onCreated={() => { setShowForm(false); onRefresh(); }}
+          onCreated={() => { setShowForm(false); refresh(); }}
         />
       )}
     </section>

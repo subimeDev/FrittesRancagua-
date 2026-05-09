@@ -39,7 +39,8 @@ export default function LoginPage(): JSX.Element {
           <img
             src="/frittes-logo.jpg"
             alt="Frittes Maison"
-            className="mx-auto h-36 w-auto object-contain"
+            className="mx-auto h-44 w-auto object-contain"
+            style={{ mixBlendMode: "multiply" }}
           />
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.25em] text-black/40">
             POS · Punto de venta

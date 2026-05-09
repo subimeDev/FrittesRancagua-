@@ -123,7 +123,8 @@ export default function HomePage(): JSX.Element {
         <img
           src="/frittes-logo.jpg"
           alt="Frittes Maison"
-          className="h-14 w-auto object-contain"
+          className="h-24 w-auto object-contain"
+          style={{ mixBlendMode: "multiply" }}
         />
         <button
           type="button"

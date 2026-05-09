@@ -222,7 +222,8 @@ export default function PosHomePage(): JSX.Element {
           <img
             src="/frittes-logo.jpg"
             alt="Frittes Maison"
-            className="h-12 w-auto object-contain"
+            className="h-16 w-auto object-contain"
+            style={{ mixBlendMode: "multiply" }}
           />
           <div className="border-l border-line pl-3">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">

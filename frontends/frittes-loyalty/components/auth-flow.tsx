@@ -36,17 +36,14 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
 
   return (
     <section className="mx-auto max-w-md space-y-5">
-      <header className="relative overflow-hidden rounded-pass bg-cream-elev p-8 shadow-card">
-        <div className="blob-mustard-tl" />
-        <div className="blob-forest-bl" />
-        <div className="relative text-center">
-          <img
-            src="/frittes-logo.jpg"
-            alt="Frittes Maison"
-            className="mx-auto h-44 w-auto object-contain"
-          />
-          <p className="mt-3 text-sm text-ink-muted">{branding.tagline}</p>
-        </div>
+      <header className="rounded-pass bg-cream-elev px-6 py-10 shadow-card text-center">
+        <img
+          src="/frittes-logo.jpg"
+          alt="Frittes Maison"
+          className="mx-auto h-56 w-auto object-contain"
+          style={{ mixBlendMode: "multiply" }}
+        />
+        <p className="mt-2 text-sm text-ink-muted">{branding.tagline}</p>
       </header>
 
       {state.step === "email-input" || (state.step === "loading" && !state.email) ? (
