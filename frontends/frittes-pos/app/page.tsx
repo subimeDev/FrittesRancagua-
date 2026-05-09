@@ -219,73 +219,105 @@ export default function PosHomePage(): JSX.Element {
       {/* Header */}
       <header className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-mustard font-bold text-ink text-sm">
-            F
-          </div>
-          <div>
-            <p className="font-bold leading-tight text-ink">Frittes POS</p>
+          <img
+            src="/frittes-logo.jpg"
+            alt="Frittes Maison"
+            className="h-12 w-auto object-contain"
+          />
+          <div className="border-l border-line pl-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">
+              POS · {staff?.role === "manager" ? "Admin" : "Cajero"}
+            </p>
             {staff ? (
-              <p className="text-xs text-black/50">{staff.name}</p>
+              <p className="text-sm font-bold text-ink">{staff.name}</p>
             ) : null}
           </div>
         </div>
         <button
           type="button"
           onClick={handleSignOut}
-          className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-black/70 hover:bg-gray-50"
+          className="rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-medium text-black/70 hover:bg-gray-50"
         >
-          Cerrar sesión
+          Salir
         </button>
       </header>
 
       {/* Dashboard */}
       {uiState === "dashboard" ? (
         <section className="space-y-4">
-          <div className="rounded-2xl border border-line bg-white p-6">
-            <p className="text-xs font-semibold uppercase tracking-widest text-black/40">
-              Bienvenido
-            </p>
-            <p className="mt-1 text-2xl font-bold text-ink">
-              {staff?.name ?? "Cajero"}
-            </p>
-            <p className="mt-1 text-sm text-black/50">
-              Escanea el QR del cliente para sumar sellos o canjear premios.
-            </p>
-          </div>
-
           <button
             type="button"
             onClick={() => {
               setUiState("scanner");
               void startCamera();
             }}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-ink px-6 py-5 text-lg font-bold text-white shadow-sm active:scale-95 transition-transform"
+            className="group relative flex w-full items-center gap-4 overflow-hidden rounded-2xl bg-ink px-6 py-6 text-left text-white shadow-card active:scale-[0.98] transition-transform"
           >
-            <span className="text-2xl">📷</span>
-            Escanear QR del cliente
+            <span className="grid h-14 w-14 flex-none place-items-center rounded-xl bg-mustard text-ink text-2xl">
+              📷
+            </span>
+            <div className="flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-white/60">
+                Acción principal
+              </p>
+              <p className="text-xl font-bold leading-tight">Escanear QR del cliente</p>
+              <p className="mt-0.5 text-xs text-white/70">Sumar sello o canjear premio</p>
+            </div>
+            <span className="text-2xl text-white/40 group-active:translate-x-1 transition-transform">›</span>
           </button>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/admin?tab=customers&with_coupon=1")}
+              className="rounded-2xl border border-line bg-white px-4 py-4 text-left shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-2xl">🎟️</span>
+              <p className="mt-1.5 text-sm font-bold text-ink">Cupones</p>
+              <p className="text-[11px] text-black/50">Clientes con premio listo</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/admin?tab=customers")}
+              className="rounded-2xl border border-line bg-white px-4 py-4 text-left shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-2xl">👥</span>
+              <p className="mt-1.5 text-sm font-bold text-ink">Clientes</p>
+              <p className="text-[11px] text-black/50">Buscar y ver historial</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/admin?tab=transactions")}
+              className="rounded-2xl border border-line bg-white px-4 py-4 text-left shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-2xl">📊</span>
+              <p className="mt-1.5 text-sm font-bold text-ink">Movimientos</p>
+              <p className="text-[11px] text-black/50">Sellos y canjes recientes</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/admin?tab=stats")}
+              className="rounded-2xl border border-line bg-white px-4 py-4 text-left shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-2xl">📈</span>
+              <p className="mt-1.5 text-sm font-bold text-ink">Resumen</p>
+              <p className="text-[11px] text-black/50">Stats del programa</p>
+            </button>
+          </div>
 
           {staff?.role === "manager" ? (
             <button
               type="button"
-              onClick={() => router.push("/admin")}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl border border-line bg-white px-6 py-4 text-base font-semibold text-ink shadow-sm active:scale-95 transition-transform"
+              onClick={() => router.push("/admin?tab=staff")}
+              className="flex w-full items-center justify-between rounded-2xl border border-line bg-white px-5 py-3 text-sm font-semibold text-ink shadow-sm active:scale-95 transition-transform"
             >
-              <span className="text-xl">⚙️</span>
-              Panel de administración
+              <span className="flex items-center gap-2.5">
+                <span className="text-lg">⚙️</span>
+                Gestionar cajeros
+              </span>
+              <span className="text-black/30">›</span>
             </button>
           ) : null}
-
-          <div className="grid grid-cols-2 gap-3 text-center">
-            <div className="rounded-2xl border border-line bg-white p-4">
-              <p className="text-2xl font-bold text-mustard-deep">+1</p>
-              <p className="mt-1 text-xs text-black/50">Sello por visita</p>
-            </div>
-            <div className="rounded-2xl border border-line bg-white p-4">
-              <p className="text-2xl font-bold text-forest">10</p>
-              <p className="mt-1 text-xs text-black/50">Sellos para premio</p>
-            </div>
-          </div>
         </section>
       ) : null}
 

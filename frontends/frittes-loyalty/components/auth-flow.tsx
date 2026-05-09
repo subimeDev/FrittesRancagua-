@@ -3,7 +3,6 @@
 import { useState, type FormEvent } from "react";
 
 import { PhoneStep } from "@/components/auth/phone-step";
-import { FrittesMark } from "@/components/frittes-mark";
 import { track } from "@/lib/analytics";
 import type { FrittesBranding } from "@/lib/branding";
 import { useAuth } from "@/lib/use-auth";
@@ -41,10 +40,12 @@ export function AuthFlow({ branding, onAuthenticated }: AuthFlowProps): JSX.Elem
         <div className="blob-mustard-tl" />
         <div className="blob-forest-bl" />
         <div className="relative text-center">
-          <FrittesMark className="mx-auto h-20 w-20" />
-          <h1 className="mt-3 font-display text-5xl font-bold leading-none tracking-tight text-ink">FRITTES</h1>
-          <p className="-mt-1 font-script text-3xl text-ink">- maison -</p>
-          <p className="mt-4 text-sm text-ink-muted">{branding.tagline}</p>
+          <img
+            src="/frittes-logo.jpg"
+            alt="Frittes Maison"
+            className="mx-auto h-44 w-auto object-contain"
+          />
+          <p className="mt-3 text-sm text-ink-muted">{branding.tagline}</p>
         </div>
       </header>
 

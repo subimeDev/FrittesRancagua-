@@ -33,35 +33,53 @@ export default function LoginPage(): JSX.Element {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen max-w-md place-items-center px-6">
-      <form onSubmit={onSubmit} className="w-full space-y-3 rounded-xl border border-line bg-white p-6">
-        <h1 className="text-2xl font-semibold">Ingreso staff</h1>
-        <p className="text-sm text-black/60">Solo personal autorizado.</p>
-        <input
-          type="email"
-          required
-          placeholder="email@frittes.cl"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          className="w-full rounded-lg border border-line px-3 py-2"
-        />
-        <input
-          type="password"
-          required
-          placeholder="********"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          className="w-full rounded-lg border border-line px-3 py-2"
-        />
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-mustard px-4 py-2 font-semibold disabled:opacity-60"
+    <main className="mx-auto grid min-h-screen max-w-md place-items-center bg-cream px-6">
+      <div className="w-full space-y-6">
+        <div className="text-center">
+          <img
+            src="/frittes-logo.jpg"
+            alt="Frittes Maison"
+            className="mx-auto h-36 w-auto object-contain"
+          />
+          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.25em] text-black/40">
+            POS · Punto de venta
+          </p>
+        </div>
+
+        <form
+          onSubmit={onSubmit}
+          className="space-y-3 rounded-2xl border border-line bg-white p-6 shadow-sm"
         >
-          {loading ? "Ingresando..." : "Ingresar"}
-        </button>
-      </form>
+          <div>
+            <h1 className="text-xl font-bold text-ink">Ingreso staff</h1>
+            <p className="text-xs text-black/50">Solo personal autorizado.</p>
+          </div>
+          <input
+            type="email"
+            required
+            placeholder="email@frittes.cl"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-ink-muted/50 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+          />
+          <input
+            type="password"
+            required
+            placeholder="********"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-ink-muted/50 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+          />
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-xl bg-ink px-4 py-3 font-bold text-white transition active:scale-95 disabled:opacity-60"
+          >
+            {loading ? "Ingresando..." : "Ingresar"}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { AddToWallet } from "@/components/add-to-wallet";
 import { AuthFlow } from "@/components/auth-flow";
-import { FrittesMark } from "@/components/frittes-mark";
 import { InstallPrompt } from "@/components/install-prompt";
 import { SkeletonPass } from "@/components/skeleton-pass";
 import { toast } from "@/components/toast";
@@ -121,13 +120,11 @@ export default function HomePage(): JSX.Element {
 
       {/* Header marca */}
       <header className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <FrittesMark className="h-9 w-9" />
-          <div className="leading-tight">
-            <p className="font-display text-base font-bold tracking-tight text-ink">FRITTES</p>
-            <p className="-mt-0.5 font-script text-base text-ink-muted">- maison -</p>
-          </div>
-        </div>
+        <img
+          src="/frittes-logo.jpg"
+          alt="Frittes Maison"
+          className="h-14 w-auto object-contain"
+        />
         <button
           type="button"
           disabled={isSigningOut}

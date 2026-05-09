@@ -28,7 +28,7 @@ def require_manager(staff: StaffUser = Depends(get_current_staff)) -> StaffUser:
 async def get_stats(
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
-    _: StaffUser = Depends(require_manager),
+    _: StaffUser = Depends(get_current_staff),
 ) -> dict[str, int]:
     total_customers = (await db.execute(
         select(func.count()).select_from(Customer)
@@ -57,18 +57,28 @@ async def get_stats(
 async def list_customers(
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
-    _: StaffUser = Depends(require_manager),
+    _: StaffUser = Depends(get_current_staff),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
+    with_coupon: bool = Query(default=False, description="Solo clientes con sellos >= threshold"),
+    search: str | None = Query(default=None, description="Buscar por nombre o email"),
 ) -> dict[str, object]:
+    base_filter = [Customer.restaurant_id == restaurant_id]
+    if with_coupon:
+        base_filter.append(Customer.stamps >= Customer.threshold)
+    if search:
+        like = f"%{search.strip().lower()}%"
+        base_filter.append(
+            (func.lower(Customer.name).like(like)) | (func.lower(Customer.phone).like(like))
+        )
+
     total = (await db.execute(
-        select(func.count()).select_from(Customer)
-        .where(Customer.restaurant_id == restaurant_id)
+        select(func.count()).select_from(Customer).where(*base_filter)
     )).scalar_one()
     rows = (await db.execute(
         select(Customer)
-        .where(Customer.restaurant_id == restaurant_id)
-        .order_by(Customer.created_at.desc())
+        .where(*base_filter)
+        .order_by(Customer.stamps.desc(), Customer.created_at.desc())
         .offset(offset).limit(limit)
     )).scalars().all()
     return {
@@ -79,8 +89,10 @@ async def list_customers(
                 "name": c.name,
                 "phone": c.phone,
                 "stamps": c.stamps,
+                "threshold": c.threshold,
                 "lifetime_stamps": c.lifetime_stamps,
                 "redemptions": c.redemptions,
+                "has_coupon": c.stamps >= c.threshold,
                 "member_since": c.member_since.isoformat(),
             }
             for c in rows
@@ -96,7 +108,7 @@ async def list_customers(
 async def list_transactions(
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
-    _: StaffUser = Depends(require_manager),
+    _: StaffUser = Depends(get_current_staff),
     limit: int = Query(default=60, ge=1, le=200),
 ) -> list[dict[str, object]]:
     rows = (await db.execute(

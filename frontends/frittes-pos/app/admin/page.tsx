@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ApiError } from "@/lib/api";
 
@@ -20,8 +20,10 @@ type CustomerRow = {
   name: string;
   phone: string;
   stamps: number;
+  threshold: number;
   lifetime_stamps: number;
   redemptions: number;
+  has_coupon: boolean;
   member_since: string;
 };
 
@@ -90,34 +92,38 @@ async function adminRequest<T>(
 
 export default function AdminPage(): JSX.Element {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [token, setToken] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff | null>(null);
-  const [tab, setTab] = useState<Tab>("stats");
+  const initialTab = (searchParams.get("tab") as Tab | null) ?? "stats";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [stats, setStats] = useState<AdminStats | null>(null);
-  const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [transactions, setTransactions] = useState<TxRow[]>([]);
   const [staffList, setStaffList] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const isManager = staff?.role === "manager";
 
   // Auth check
   useEffect(() => {
     const t = localStorage.getItem("frittes-pos:session");
     const s = JSON.parse(localStorage.getItem("frittes-pos:staff") ?? "null") as Staff | null;
     if (!t || !s) { router.replace("/login"); return; }
-    if (s.role !== "manager") { router.replace("/"); return; }
     setToken(t);
     setStaff(s);
   }, [router]);
 
+  // If non-manager lands on staff tab, bounce them off
+  useEffect(() => {
+    if (staff && !isManager && tab === "staff") {
+      setTab("stats");
+    }
+  }, [staff, isManager, tab]);
+
   const loadStats = useCallback(async (t: string) => {
     const data = await adminRequest<AdminStats>("/loyalty/admin/stats", t);
     setStats(data);
-  }, []);
-
-  const loadCustomers = useCallback(async (t: string) => {
-    const data = await adminRequest<{ total: number; items: CustomerRow[] }>("/loyalty/admin/customers?limit=100", t);
-    setCustomers(data.items);
   }, []);
 
   const loadTransactions = useCallback(async (t: string) => {
@@ -130,16 +136,21 @@ export default function AdminPage(): JSX.Element {
     setStaffList(data);
   }, []);
 
-  // Load all data once authenticated
+  // Load data once authenticated. Customers tab loads its own data lazily.
   useEffect(() => {
-    if (!token) return;
+    if (!token || !staff) return;
     setLoading(true);
-    Promise.all([loadStats(token), loadCustomers(token), loadTransactions(token), loadStaff(token)])
+    const tasks: Array<Promise<void>> = [
+      loadStats(token),
+      loadTransactions(token),
+    ];
+    if (staff.role === "manager") tasks.push(loadStaff(token));
+    Promise.all(tasks)
       .catch((err: unknown) => {
         setError(err instanceof ApiError ? err.message : "Error al cargar datos");
       })
       .finally(() => setLoading(false));
-  }, [token, loadStats, loadCustomers, loadTransactions, loadStaff]);
+  }, [token, staff, loadStats, loadTransactions, loadStaff]);
 
   if (loading) {
     return (
@@ -166,18 +177,35 @@ export default function AdminPage(): JSX.Element {
     );
   }
 
+  const visibleTabs: Tab[] = isManager
+    ? ["stats", "customers", "transactions", "staff"]
+    : ["stats", "customers", "transactions"];
+
   return (
     <main className="mx-auto min-h-screen max-w-3xl bg-cream px-5 py-6">
       {/* Header */}
       <header className="mb-6 flex items-center justify-between">
-        <div>
-          <p className="font-bold text-ink">Panel de Administración</p>
-          <p className="text-xs text-black/50">{staff?.name}</p>
-        </div>
         <button
           type="button"
           onClick={() => router.push("/")}
-          className="rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-black/70 hover:bg-gray-50"
+          className="flex items-center gap-3"
+        >
+          <img
+            src="/frittes-logo.jpg"
+            alt="Frittes Maison"
+            className="h-10 w-auto object-contain"
+          />
+          <div className="border-l border-line pl-3 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">
+              {isManager ? "Admin" : "Cajero"}
+            </p>
+            <p className="text-sm font-bold text-ink">{staff?.name}</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => router.push("/")}
+          className="rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-medium text-black/70 hover:bg-gray-50"
         >
           ← POS
         </button>
@@ -185,7 +213,7 @@ export default function AdminPage(): JSX.Element {
 
       {/* Tabs */}
       <nav className="mb-6 flex gap-1 rounded-xl bg-cream-muted p-1">
-        {(["stats", "customers", "transactions", "staff"] as Tab[]).map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t}
             type="button"
@@ -200,9 +228,14 @@ export default function AdminPage(): JSX.Element {
       </nav>
 
       {tab === "stats" && stats && <StatsTab stats={stats} />}
-      {tab === "customers" && <CustomersTab customers={customers} />}
+      {tab === "customers" && token && (
+        <CustomersTab
+          token={token}
+          initialWithCoupon={searchParams.get("with_coupon") === "1"}
+        />
+      )}
       {tab === "transactions" && <TransactionsTab transactions={transactions} />}
-      {tab === "staff" && token && (
+      {tab === "staff" && isManager && token && (
         <StaffTab
           staffList={staffList}
           token={token}
@@ -230,7 +263,7 @@ function StatsTab({ stats }: { stats: AdminStats }): JSX.Element {
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }): JSX.Element {
   return (
-    <div className="rounded-2xl border border-line bg-white p-6 text-center">
+    <div className="rounded-2xl border border-line bg-white p-6 text-center shadow-sm">
       <p className={`text-4xl font-bold tabular-nums ${color}`}>{value.toLocaleString("es-CL")}</p>
       <p className="mt-1 text-xs text-black/50">{label}</p>
     </div>
@@ -239,37 +272,132 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 
 // ─── Customers Tab ────────────────────────────────────────────────────────────
 
-function CustomersTab({ customers }: { customers: CustomerRow[] }): JSX.Element {
+function CustomersTab({
+  token,
+  initialWithCoupon,
+}: {
+  token: string;
+  initialWithCoupon: boolean;
+}): JSX.Element {
+  const [withCoupon, setWithCoupon] = useState(initialWithCoupon);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [customers, setCustomers] = useState<CustomerRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set("limit", "100");
+    if (withCoupon) params.set("with_coupon", "true");
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    adminRequest<{ total: number; items: CustomerRow[] }>(
+      `/loyalty/admin/customers?${params.toString()}`,
+      token,
+    )
+      .then((data) => {
+        setCustomers(data.items);
+        setTotal(data.total);
+      })
+      .catch(() => {
+        setCustomers([]);
+        setTotal(0);
+      })
+      .finally(() => setLoading(false));
+  }, [token, withCoupon, debouncedSearch]);
+
+  const couponCount = useMemo(
+    () => customers.filter((c) => c.has_coupon).length,
+    [customers],
+  );
+
   return (
-    <section className="space-y-3">
-      <p className="text-xs text-black/40">{customers.length} clientes</p>
-      <div className="overflow-hidden rounded-2xl border border-line bg-white">
+    <section className="space-y-4">
+      <div className="space-y-3 rounded-2xl border border-line bg-white p-4 shadow-sm">
+        <input
+          type="text"
+          placeholder="Buscar por nombre o email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-ink-muted/50 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterPill
+            active={!withCoupon}
+            onClick={() => setWithCoupon(false)}
+            label="Todos"
+          />
+          <FilterPill
+            active={withCoupon}
+            onClick={() => setWithCoupon(true)}
+            label={`🎟️ Con cupón${withCoupon && customers.length > 0 ? ` · ${couponCount}` : ""}`}
+          />
+          <span className="ml-auto text-xs text-black/40">
+            {loading ? "Cargando…" : `${total.toLocaleString("es-CL")} resultados`}
+          </span>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
         {customers.length === 0 ? (
-          <p className="p-6 text-center text-sm text-black/40">Sin clientes aún.</p>
+          <p className="p-8 text-center text-sm text-black/40">
+            {loading ? "Cargando…" : withCoupon ? "Ningún cliente con cupón disponible." : "Sin resultados."}
+          </p>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-cream-muted text-left">
-                <th className="px-4 py-2.5 text-xs font-semibold text-black/50">Nombre</th>
-                <th className="px-4 py-2.5 text-xs font-semibold text-black/50">Email</th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-black/50">Sellos</th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold text-black/50">Canjes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.map((c, i) => (
-                <tr key={c.id} className={i % 2 === 0 ? "" : "bg-cream/40"}>
-                  <td className="px-4 py-2.5 font-medium text-ink">{c.name}</td>
-                  <td className="max-w-[180px] truncate px-4 py-2.5 text-black/50">{c.phone}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-forest">{c.stamps}</td>
-                  <td className="px-4 py-2.5 text-right text-black/50">{c.redemptions}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul className="divide-y divide-line">
+            {customers.map((c) => (
+              <li key={c.id} className="flex items-center gap-3 px-4 py-3">
+                <div
+                  className={`flex h-10 w-10 flex-none items-center justify-center rounded-full text-sm font-bold ${
+                    c.has_coupon ? "bg-mustard text-ink" : "bg-cream-muted text-ink"
+                  }`}
+                >
+                  {c.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate font-semibold text-ink">{c.name}</p>
+                    {c.has_coupon ? (
+                      <span className="rounded-full bg-forest px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-cream">
+                        Cupón
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="truncate text-xs text-black/40">{c.phone}</p>
+                </div>
+                <div className="flex-none text-right">
+                  <p className="font-bold tabular-nums text-ink">
+                    {c.stamps}
+                    <span className="text-sm font-normal text-black/40">/{c.threshold}</span>
+                  </p>
+                  <p className="text-[10px] text-black/40">{c.redemptions} canjes</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </section>
+  );
+}
+
+function FilterPill({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+        active ? "bg-ink text-white" : "bg-cream-muted text-black/60 hover:bg-cream-muted/70"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -284,13 +412,15 @@ function TransactionsTab({ transactions }: { transactions: TxRow[] }): JSX.Eleme
           Sin transacciones aún.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-white">
+        <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
           {transactions.map((tx, i) => (
             <div
               key={tx.id}
               className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? "border-t border-line" : ""}`}
             >
-              <span className="text-xl">
+              <span className={`grid h-9 w-9 flex-none place-items-center rounded-full text-base ${
+                tx.kind === "accrual" ? "bg-forest/10" : "bg-mustard/30"
+              }`}>
                 {tx.kind === "accrual" ? "⭐" : "🎁"}
               </span>
               <div className="min-w-0 flex-1">
@@ -299,7 +429,7 @@ function TransactionsTab({ transactions }: { transactions: TxRow[] }): JSX.Eleme
                   {tx.staff_name ?? "—"} · {new Date(tx.created_at).toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" })}
                 </p>
               </div>
-              <span className={`text-sm font-bold ${tx.kind === "accrual" ? "text-forest" : "text-mustard-deep"}`}>
+              <span className={`text-sm font-bold tabular-nums ${tx.kind === "accrual" ? "text-forest" : "text-mustard-deep"}`}>
                 {tx.kind === "accrual" ? `+${tx.stamps_delta}` : `−${Math.abs(tx.stamps_delta)}`}
               </span>
             </div>
@@ -352,7 +482,7 @@ function StaffTab({
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-line bg-white">
+      <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
         {staffList.map((s, i) => (
           <div
             key={s.id}
