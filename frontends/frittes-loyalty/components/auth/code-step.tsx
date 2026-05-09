@@ -31,7 +31,7 @@ export function CodeStep({
     <div className="space-y-4 rounded-pass border border-line bg-cream-elev p-6 shadow-card">
       <div>
         <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">Verificacion</p>
-        <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">Ingresa el codigo SMS</h2>
+        <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">Ingresa el código de tu email</h2>
       </div>
 
       <div className="flex gap-2">

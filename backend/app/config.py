@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 602430
     qr_ttl_seconds: int = 90
     restaurant_id: str = "frittes-maison"
+    resend_api_key: str | None = None
+    resend_from_email: str = "onboarding@resend.dev"
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3001", "http://localhost:3002"]
     )

@@ -130,15 +130,45 @@ async def complete_profile_for_phone(
     return customer
 
 
+def _generate_otp() -> str:
+    import random
+    return str(random.randint(100000, 999999))
+
+
+async def _send_otp_email(email: str, code: str) -> None:
+    import resend as resend_sdk
+    settings = get_settings()
+    if not settings.resend_api_key:
+        import logging
+        logging.getLogger(__name__).warning("RESEND_API_KEY not set — OTP code: %s", code)
+        return
+    resend_sdk.api_key = settings.resend_api_key
+    resend_sdk.Emails.send({
+        "from": settings.resend_from_email,
+        "to": [email],
+        "subject": "Tu código de verificación Frittes",
+        "html": (
+            f"<div style='font-family:sans-serif;max-width:400px;margin:auto;padding:32px'>"
+            f"<h2 style='margin-bottom:8px'>Frittes Maison</h2>"
+            f"<p style='color:#555'>Tu código de verificación es:</p>"
+            f"<div style='font-size:40px;font-weight:bold;letter-spacing:8px;margin:24px 0'>{code}</div>"
+            f"<p style='color:#999;font-size:13px'>Válido por 5 minutos. No compartas este código.</p>"
+            f"</div>"
+        ),
+    })
+
+
 async def request_otp(db: AsyncSession, phone: str) -> None:
     expires = _now() + timedelta(minutes=5)
+    code = _generate_otp()
     async with db.begin():
         existing = await db.get(PendingOtp, phone)
         if existing:
-            existing.code = "123456"
+            existing.code = code
             existing.expires_at = expires
         else:
-            db.add(PendingOtp(phone=phone, code="123456", expires_at=expires))
+            db.add(PendingOtp(phone=phone, code=code, expires_at=expires))
+    await _send_otp_email(phone, code)
 
 
 async def verify_otp(db: AsyncSession, phone: str, code: str) -> bool:
