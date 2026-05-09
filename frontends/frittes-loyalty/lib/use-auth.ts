@@ -31,6 +31,13 @@ type RegisterProfileInput = {
   email?: string;
 };
 
+const SESSION_KEY = "frittes-loyalty:session";
+
+function saveSessionToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SESSION_KEY, token);
+}
+
 /**
  * TODO backend loyalty auth:
  * - POST /api/v1/loyalty/auth/request-otp { phone } -> 204
@@ -91,11 +98,7 @@ export function useAuth(): {
           body: { phone: state.phone, code },
         });
 
-        await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: response.session_token }),
-        });
+        saveSessionToken(response.session_token);
 
         track("otp_verified");
         setState((prev) => ({
@@ -128,11 +131,7 @@ export function useAuth(): {
             email: input.email || undefined,
           },
         });
-        await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: response.session_token }),
-        });
+        saveSessionToken(response.session_token);
         track("signup_completed");
 
         const customer = response.customer!;
