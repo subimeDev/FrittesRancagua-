@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 
 import { FrittesMark } from "@/components/frittes-mark";
@@ -16,18 +16,17 @@ type WalletPassProps = {
   onRefreshQr: () => void;
 };
 
-/**
- * Tarjeta wallet de Frittes Maison.
- *
- * Estructura inspirada en un pase real de Apple/Google Wallet:
- *  - Header con color de marca + logo + nombre del programa
- *  - Body con titular y dato grande (sellos)
- *  - Strip inferior con QR de validacion
- *  - Tap para girar y ver dorso (sellos individuales + info)
- *
- * Aspecto wallet, no credit-card: ratio mas vertical (~1.27:1), header
- * solido y QR strip prominente.
- */
+const CONFETTI_COLORS = [
+  "#FFD23F",
+  "#2D5A3F",
+  "#1A1815",
+  "#E8B82E",
+  "#F5C200",
+  "#2D5A3F",
+  "#FFD23F",
+  "#1A1815",
+];
+
 export function WalletPass({
   account,
   branding,
@@ -36,6 +35,9 @@ export function WalletPass({
   onRefreshQr,
 }: WalletPassProps): JSX.Element {
   const [flipped, setFlipped] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const confettiFired = useRef(false);
+
   const memberSince = useMemo(
     () =>
       new Date(account.member_since).toLocaleDateString(branding.currency.locale, {
@@ -46,12 +48,42 @@ export function WalletPass({
   );
   const cardNumber = account.id.replace("frt_", "").toUpperCase().padStart(6, "0");
   const ready = account.stamps >= account.threshold;
+  const progressPct = Math.min((account.stamps / account.threshold) * 100, 100);
+
+  useEffect(() => {
+    if (ready && !confettiFired.current) {
+      confettiFired.current = true;
+      setShowConfetti(true);
+      const timer = window.setTimeout(() => setShowConfetti(false), 3000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [ready]);
 
   return (
     <div
       className="group relative mx-auto w-full max-w-sm animate-pass-rise"
       style={{ perspective: "1200px" }}
     >
+      {/* Confetti — se dispara una vez al alcanzar el threshold */}
+      {showConfetti && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-20 overflow-hidden rounded-pass"
+        >
+          {CONFETTI_COLORS.map((color, i) => (
+            <span
+              key={i}
+              className="confetti-piece absolute top-0 block h-2 w-2 rounded-sm"
+              style={{
+                left: `${8 + i * 11}%`,
+                background: color,
+                animationDelay: `${i * 0.13}s`,
+              }}
+            />
+          ))}
+        </div>
+      )}
+
       <button
         type="button"
         aria-label="Voltear tarjeta"
@@ -63,30 +95,29 @@ export function WalletPass({
           transform: flipped ? "rotateY(180deg)" : "rotateY(0deg)",
         }}
       >
-        {/* FRENTE */}
+        {/* ── FRENTE ── */}
         <div
           className="pass-shine absolute inset-0 overflow-hidden rounded-pass shadow-pass [backface-visibility:hidden]"
           style={{ background: "var(--brand-cream-elev)" }}
         >
-          {/* Header amarillo */}
+          {/* Header — gradiente sutil + patron de puntos */}
           <header
             className="relative px-6 pb-5 pt-6 text-ink"
-            style={{ background: "var(--brand-mustard)" }}
+            style={{
+              background:
+                "linear-gradient(135deg, #FFD23F 0%, #F5C200 60%, #E8B82E 100%)",
+            }}
           >
-            {/* Splash decorativo arriba a la derecha */}
-            <svg
+            <div
               aria-hidden
-              className="absolute right-4 top-3 h-6 w-6 opacity-80"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <circle cx="6" cy="6" r="1.2" />
-              <circle cx="14" cy="3" r="0.9" />
-              <circle cx="20" cy="9" r="1.1" />
-              <circle cx="11" cy="11" r="0.7" />
-            </svg>
-
-            <div className="flex items-center justify-between">
+              className="pointer-events-none absolute inset-0"
+              style={{
+                backgroundImage: "radial-gradient(circle, #000 1px, transparent 1px)",
+                backgroundSize: "12px 12px",
+                opacity: 0.06,
+              }}
+            />
+            <div className="relative flex items-center justify-between">
               <FrittesMark className="h-12 w-12" />
               <div className="text-right leading-tight">
                 <p className="font-display text-[18px] font-bold tracking-tight">FRITTES</p>
@@ -95,14 +126,13 @@ export function WalletPass({
                 </p>
               </div>
             </div>
-
-            <p className="mt-4 text-[10px] font-semibold uppercase tracking-wider2 text-ink/65">
+            <p className="relative mt-4 text-[10px] font-semibold uppercase tracking-wider2 text-ink/65">
               {branding.programName}
             </p>
           </header>
 
           {/* Body crema */}
-          <section className="px-6 py-5">
+          <section className="px-6 pb-36 pt-5">
             <p className="text-[10px] font-medium uppercase tracking-wider2 text-ink-muted">
               {branding.memberLabel}
             </p>
@@ -114,29 +144,52 @@ export function WalletPass({
               {account.tier}
             </p>
 
-            <div className="mt-5 flex items-end justify-between border-b border-dashed border-line pb-4">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-wider2 text-ink-muted">
-                  Sellos
-                </p>
-                <p className="mt-0.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
-                  <span className="text-5xl font-bold tabular-nums">{account.stamps}</span>
-                  <span className="text-base font-medium text-ink-muted">
-                    / {account.threshold}
+            <div className="mt-5 border-b border-dashed border-line pb-4">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-wider2 text-ink-muted">
+                    Sellos
+                  </p>
+                  <p className="mt-0.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
+                    <span className="text-5xl font-bold tabular-nums">{account.stamps}</span>
+                    <span className="text-base font-medium text-ink-muted">
+                      / {account.threshold}
+                    </span>
+                  </p>
+                </div>
+                {ready ? (
+                  <span className="rounded-full bg-forest px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider2 text-cream">
+                    Listo!
                   </span>
-                </p>
+                ) : (
+                  <span className="text-right text-[11px] font-medium text-ink-muted">
+                    faltan {account.threshold - account.stamps}
+                    <br />
+                    para {branding.rewardCopy}
+                  </span>
+                )}
               </div>
-              {ready ? (
-                <span className="rounded-full bg-forest px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider2 text-cream">
-                  Listo!
-                </span>
-              ) : (
-                <span className="text-right text-[11px] font-medium text-ink-muted">
-                  faltan {account.threshold - account.stamps}
-                  <br />
-                  para {branding.rewardCopy}
-                </span>
-              )}
+
+              {/* Barra de progreso */}
+              <div className="mt-3">
+                <p className="mb-1.5 text-[9px] font-medium uppercase tracking-wider2 text-ink-muted">
+                  {ready
+                    ? "¡Listo para canjear!"
+                    : `${account.threshold - account.stamps} mas para ${branding.rewardCopy}`}
+                </p>
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full"
+                  style={{ background: "var(--brand-cream-muted)" }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${progressPct}%`,
+                      background: "var(--brand-mustard-deep)",
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </section>
 
@@ -146,10 +199,16 @@ export function WalletPass({
             style={{ background: "var(--brand-cream-muted)" }}
           >
             <div className="flex items-center gap-3">
-              {/* QR grande y centrado para fácil escaneo */}
               <div className="relative flex-none">
-                <div className={`rounded-xl bg-white p-1.5 ring-1 ring-line ${isQrExpired ? "opacity-40" : ""}`}>
-                  <QRCodeSVG value={qrToken || "pending"} size={96} bgColor="#ffffff" fgColor="#1A1815" />
+                <div
+                  className={`rounded-xl bg-white p-1.5 ring-1 ring-line ${isQrExpired ? "opacity-40" : ""}`}
+                >
+                  <QRCodeSVG
+                    value={qrToken || "pending"}
+                    size={96}
+                    bgColor="#ffffff"
+                    fgColor="#1A1815"
+                  />
                 </div>
                 {isQrExpired ? (
                   <button
@@ -158,7 +217,7 @@ export function WalletPass({
                       event.stopPropagation();
                       onRefreshQr();
                     }}
-                    className="absolute inset-0 z-10 rounded-xl bg-cream/90 text-[10px] font-semibold uppercase tracking-wider2 text-ink"
+                    className="absolute inset-0 z-10 rounded-xl bg-cream/90 text-[10px] font-semibold uppercase tracking-wider2 text-ink active:scale-[0.98]"
                   >
                     Refrescar
                   </button>
@@ -174,15 +233,32 @@ export function WalletPass({
                 <p className="mt-1 text-[10px] uppercase tracking-wider2 text-ink-muted">
                   Miembro · {memberSince}
                 </p>
-                <p className="mt-2 text-[9px] uppercase tracking-wider2 text-ink-muted/60">
-                  Toca para ver el reverso ↻
-                </p>
+                {/* Pill animado — reemplaza el texto invisible de flip */}
+                <div className="mt-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-ink/5 px-3 py-1 text-[9px] font-semibold uppercase tracking-wider2 text-ink-muted">
+                    <svg
+                      aria-hidden
+                      className="h-3 w-3 animate-spin-slow"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                      <path d="M21 3v5h-5" />
+                      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                    </svg>
+                    ver sellos
+                  </span>
+                </div>
               </div>
             </div>
           </section>
         </div>
 
-        {/* DORSO — grilla de sellos + info */}
+        {/* ── DORSO — grilla de sellos + info ── */}
         <div
           className="absolute inset-0 overflow-hidden rounded-pass shadow-pass [backface-visibility:hidden]"
           style={{
@@ -216,9 +292,7 @@ export function WalletPass({
             </dl>
           </section>
 
-          <footer
-            className="absolute inset-x-0 bottom-0 border-t border-line bg-cream-muted px-5 py-3 text-center text-[10px] uppercase tracking-wider2 text-ink-muted"
-          >
+          <footer className="absolute inset-x-0 bottom-0 border-t border-line bg-cream-muted px-5 py-3 text-center text-[10px] uppercase tracking-wider2 text-ink-muted">
             Toca para volver al frente ↻
           </footer>
         </div>
@@ -227,10 +301,15 @@ export function WalletPass({
   );
 }
 
-function StampGrid({ stamps, threshold }: { stamps: number; threshold: number }): JSX.Element {
-  // Mostramos exactamente threshold celdas: las primeras `stamps % threshold`
-  // estampadas, el resto en outline.
-  const filled = stamps % threshold || (stamps > 0 && stamps % threshold === 0 ? threshold : 0);
+function StampGrid({
+  stamps,
+  threshold,
+}: {
+  stamps: number;
+  threshold: number;
+}): JSX.Element {
+  const filled =
+    stamps % threshold || (stamps > 0 && stamps % threshold === 0 ? threshold : 0);
   const cols = threshold <= 8 ? 4 : 5;
 
   return (
@@ -254,7 +333,7 @@ function StampGrid({ stamps, threshold }: { stamps: number; threshold: number })
                 <FrittesMark className="h-7 w-7" />
               </div>
             ) : (
-              <span className="text-xl font-bold text-ink-muted/30 tabular-nums">{i + 1}</span>
+              <span className="block h-5 w-5 rounded-full border-[1.5px] border-dashed border-ink-muted/30" />
             )}
           </div>
         );

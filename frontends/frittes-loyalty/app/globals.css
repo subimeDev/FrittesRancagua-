@@ -13,6 +13,15 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
+
+  /* Focus consistente en todos los inputs del proyecto */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):focus,
+  textarea:focus,
+  select:focus {
+    outline: none;
+    border-color: var(--brand-mustard-deep);
+    box-shadow: 0 0 0 3px rgb(232 184 46 / 0.25);
+  }
 }
 
 @layer utilities {
@@ -119,5 +128,59 @@
   }
   .animate-stamp-in {
     animation: stamp-in 350ms ease-out;
+  }
+
+  /* Spin lento para el pill de flip en el pase. */
+  @keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
+  .animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+  }
+
+  /* Confetti al alcanzar el threshold. */
+  @keyframes confetti-fall {
+    0% {
+      transform: translateY(-10px) rotate(0deg);
+      opacity: 1;
+    }
+    80% {
+      opacity: 0.8;
+    }
+    100% {
+      transform: translateY(380px) rotate(540deg);
+      opacity: 0;
+    }
+  }
+  .confetti-piece {
+    animation: confetti-fall 2.4s ease-in forwards;
+  }
+
+  /* Clase base para inputs del panel admin. */
+  .input-base {
+    @apply w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink transition;
+  }
+  .input-base::placeholder {
+    color: var(--brand-ink-muted);
+    opacity: 0.5;
+  }
+
+  /* Entrada de toasts — mobile: sube desde abajo; desktop: entra desde la derecha. */
+  @keyframes toast-in-up {
+    from { transform: translateY(12px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+  @keyframes toast-in-right {
+    from { transform: translateX(12px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  .toast-animate {
+    animation: toast-in-up 220ms ease-out;
+  }
+  @media (min-width: 640px) {
+    .toast-animate {
+      animation: toast-in-right 220ms ease-out;
+    }
   }
 }

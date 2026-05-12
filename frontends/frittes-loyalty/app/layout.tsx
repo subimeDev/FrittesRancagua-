@@ -42,6 +42,7 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   icons: {
+    shortcut: "/frittes-logo.jpg",
     apple: "/icons/apple-touch-icon.png",
     icon: "/icons/icon-192.png",
   },

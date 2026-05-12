@@ -52,10 +52,17 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-pass border border-line bg-cream-elev p-6 shadow-card">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-4 rounded-pass border border-line bg-cream-elev p-6 shadow-card"
+    >
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">Acceso seguro</p>
-        <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">Ingresa tu email</h2>
+        <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
+          Acceso seguro
+        </p>
+        <h2 className="mt-0.5 font-display text-2xl font-semibold tracking-tight text-ink">
+          Ingresa tu email
+        </h2>
       </div>
 
       <label className="block">
@@ -69,14 +76,13 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
             placeholder="tu@email.com"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-ink-muted/50 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/30"
+            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-ink-muted/50 transition"
           />
-          {/* Inline status icon */}
           {checkStatus === "checking" && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-base animate-pulse">⏳</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 animate-pulse text-base">⏳</span>
           )}
           {checkStatus === "found" && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-base">✓</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-base text-forest">✓</span>
           )}
           {checkStatus === "new" && (
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-base">✨</span>
@@ -84,7 +90,6 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
         </div>
       </label>
 
-      {/* Status message */}
       {checkStatus === "found" && foundName ? (
         <p className="text-xs font-semibold text-forest">
           ¡Hola de nuevo, {foundName}! Toca para entrar.
@@ -100,7 +105,7 @@ export function PhoneStep({ loading, onSubmit, errorMessage }: PhoneStepProps): 
       <button
         type="submit"
         disabled={!isValid || loading || checkStatus === "checking"}
-        className="inline-flex w-full items-center justify-center rounded-xl bg-mustard px-6 py-3.5 text-base font-bold text-ink transition disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-mustard px-6 py-3.5 text-base font-bold text-ink transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Entrando..." : checkStatus === "found" ? "Entrar" : "Continuar"}
       </button>

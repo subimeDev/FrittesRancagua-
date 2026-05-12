@@ -35,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
         setItems((prev) => [...prev, { id, type, message }]);
         window.setTimeout(() => {
           setItems((prev) => prev.filter((item) => item.id !== id));
-        }, 3500);
+        }, 3000);
       },
     }),
     [],
@@ -46,17 +46,27 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed inset-x-3 bottom-3 z-50 space-y-2 sm:left-auto sm:right-4 sm:top-4 sm:bottom-auto sm:w-[360px]">
+      {/* Mobile: abajo. Desktop: arriba-derecha. */}
+      <div className="pointer-events-none fixed inset-x-3 bottom-3 z-50 space-y-2 sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-4 sm:w-[360px]">
         {items.map((item) => (
           <div
             key={item.id}
-            className={`rounded-xl border px-4 py-3 text-sm shadow-card ${
+            role="status"
+            aria-live="polite"
+            className={`toast-animate flex items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-card ${
               item.type === "error"
                 ? "border-ember/30 bg-cream text-ink"
                 : "border-forest/30 bg-cream text-ink"
             }`}
           >
-            {item.message}
+            <span
+              className={`mt-px flex-none text-xs font-bold ${
+                item.type === "error" ? "text-ember" : "text-forest"
+              }`}
+            >
+              {item.type === "error" ? "✕" : "✓"}
+            </span>
+            <span>{item.message}</span>
           </div>
         ))}
       </div>

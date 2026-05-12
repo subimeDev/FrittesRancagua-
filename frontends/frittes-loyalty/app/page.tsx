@@ -15,6 +15,8 @@ import { useOnlineStatus } from "@/lib/use-online-status";
 import { useQrToken } from "@/lib/use-qr-token";
 import { useLoyaltyAccount } from "@/lib/use-loyalty-account";
 
+type ProgramConfig = { threshold: number; reward_name: string; tier_name: string };
+
 export default function HomePage(): JSX.Element {
   const { state, sessionToken, refresh, signOut } = useLoyaltyAccount(branding.slug);
   const { token: qrToken, isExpired, refresh: refreshQr, secondsLeft } = useQrToken(sessionToken);
@@ -22,7 +24,23 @@ export default function HomePage(): JSX.Element {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isRefreshingQr, setIsRefreshingQr] = useState(false);
   const [isOpeningWallet, setIsOpeningWallet] = useState(false);
+  const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null);
   const viewedPass = useRef(false);
+
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
+    const restaurantId = process.env.NEXT_PUBLIC_RESTAURANT_ID ?? "frittes-maison";
+    fetch(`${apiUrl}/loyalty/program-config`, {
+      headers: { "X-Restaurant-Id": restaurantId },
+    })
+      .then((r) => r.json())
+      .then((cfg: unknown) => {
+        if (cfg && typeof cfg === "object" && "reward_name" in cfg) {
+          setProgramConfig(cfg as ProgramConfig);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (isOnline) {
@@ -66,6 +84,11 @@ export default function HomePage(): JSX.Element {
 
   const account = state.account;
   const ready = account.stamps >= account.threshold;
+  const progressPct = Math.min((account.stamps / account.threshold) * 100, 100);
+  const effectiveBranding = programConfig
+    ? { ...branding, rewardCopy: programConfig.reward_name }
+    : branding;
+  const rewardCopy = effectiveBranding.rewardCopy;
 
   async function handleWallet(): Promise<void> {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -89,10 +112,12 @@ export default function HomePage(): JSX.Element {
         await signOut();
         return;
       }
-      if (!response.ok) throw new ApiError("No se pudo abrir Wallet", response.status, "wallet_error");
+      if (!response.ok)
+        throw new ApiError("No se pudo abrir Wallet", response.status, "wallet_error");
 
       const payload = (await response.json()) as { url?: string };
-      if (!payload.url) throw new ApiError("Save link no disponible", 500, "wallet_error");
+      if (!payload.url)
+        throw new ApiError("Save link no disponible", 500, "wallet_error");
       window.location.href = payload.url;
     } catch (error) {
       if (error instanceof ApiError && error.code === "rate_limited") {
@@ -137,7 +162,7 @@ export default function HomePage(): JSX.Element {
               })
               .finally(() => setIsSigningOut(false));
           }}
-          className="text-xs font-medium text-ink-muted transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-60"
+          className="text-xs font-medium text-ink-muted transition hover:text-ink active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isSigningOut ? "Cerrando..." : "Cerrar sesion"}
         </button>
@@ -150,15 +175,15 @@ export default function HomePage(): JSX.Element {
         </p>
         <p className="mt-1 text-sm text-ink-muted">
           {ready
-            ? `Tienes ${account.stamps} sellos. Puedes canjear ${branding.rewardCopy}.`
-            : `Te faltan ${account.threshold - account.stamps} sellos para ${branding.rewardCopy}.`}
+            ? `Tienes ${account.stamps} sellos. Puedes canjear ${rewardCopy}.`
+            : `Te faltan ${account.threshold - account.stamps} sellos para ${rewardCopy}.`}
         </p>
       </section>
 
       {/* PASE */}
       <WalletPass
         account={account}
-        branding={branding}
+        branding={effectiveBranding}
         qrToken={qrToken}
         isQrExpired={isExpired}
         onRefreshQr={() => {
@@ -184,6 +209,47 @@ export default function HomePage(): JSX.Element {
       <p className="mt-2 text-center text-[11px] text-ink-muted">
         QR {isExpired ? "expirado" : `vigente (${secondsLeft}s)`}
       </p>
+
+      {/* Tu proxima recompensa — hace el valor proposition visible sin voltear el pase */}
+      <section className="mx-auto mt-5 max-w-sm">
+        <div className="rounded-2xl border border-line bg-cream-muted/50 p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl leading-none">🎁</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
+                Tu proxima recompensa
+              </p>
+              <p className="mt-0.5 font-display text-sm font-semibold text-ink">
+                {rewardCopy}
+              </p>
+              <div className="mt-2">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] text-ink-muted">
+                    {ready
+                      ? "¡Listo para canjear!"
+                      : `${account.stamps} de ${account.threshold} sellos`}
+                  </span>
+                  <span className="text-[10px] font-semibold text-mustard-deep">
+                    {Math.round(progressPct)}%
+                  </span>
+                </div>
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full"
+                  style={{ background: "var(--brand-cream)" }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${progressPct}%`,
+                      background: "var(--brand-mustard-deep)",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ADD TO WALLET */}
       <section className="mx-auto mt-6 max-w-sm space-y-3">

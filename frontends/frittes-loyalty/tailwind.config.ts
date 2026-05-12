@@ -34,6 +34,16 @@ const config: Config = {
       borderRadius: {
         pass: "22px",
       },
+      animation: {
+        // Spin lento para el pill de "ver sellos" en el pase.
+        "spin-slow": "spin-slow 3s linear infinite",
+      },
+      keyframes: {
+        "spin-slow": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+      },
     },
   },
   plugins: [],
