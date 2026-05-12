@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.deps import api_error, get_current_customer, get_current_staff, get_db, get_restaurant_id
-from app.models import Customer, StaffUser
+from app.models import Customer, RestaurantConfig, StaffUser
 from app.schemas import (
     AccrueRequest,
     CustomerResponse,
@@ -225,6 +225,22 @@ async def google_wallet_pass(
         print(f"DEBUG WALLET ERROR: {str(exc)}")
         traceback.print_exc()
         raise api_error(503, "wallet_not_configured", str(exc)) from exc
+
+
+@router.get("/program-config")
+async def program_config(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> dict[str, object]:
+    """Public endpoint — no auth required. Returns the current loyalty program settings."""
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        return {"threshold": 10, "reward_name": "Papas fritas gratis", "tier_name": "Maisonero"}
+    return {
+        "threshold": config.threshold,
+        "reward_name": config.reward_name,
+        "tier_name": config.tier_name,
+    }
 
 
 @router.post("/staff/auth/login", response_model=StaffSessionResponse)

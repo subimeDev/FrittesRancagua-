@@ -4,11 +4,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import api_error, get_current_staff, get_db, get_restaurant_id
-from app.models import Customer, StaffRole, StaffUser, Transaction
+from app.models import Customer, RestaurantConfig, StaffRole, StaffUser, Transaction, TransactionKind
 from app.security import hash_password
 
 router = APIRouter(prefix="/loyalty/admin", tags=["admin"])
@@ -42,15 +42,54 @@ async def get_stats(
         select(func.coalesce(func.sum(Customer.redemptions), 0))
         .where(Customer.restaurant_id == restaurant_id)
     )).scalar_one()
+    customers_with_coupon = (await db.execute(
+        select(func.count()).select_from(Customer)
+        .where(Customer.restaurant_id == restaurant_id, Customer.stamps >= Customer.threshold)
+    )).scalar_one()
     return {
         "total_customers": total_customers,
         "total_stamps_given": total_stamps,
         "total_redemptions": total_redemptions,
+        "customers_with_coupon": customers_with_coupon,
     }
 
 
 # ---------------------------------------------------------------------------
-# Customers
+# Top customers
+# ---------------------------------------------------------------------------
+
+@router.get("/top-customers")
+async def top_customers(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(get_current_staff),
+    limit: int = Query(default=20, ge=1, le=50),
+) -> list[dict[str, object]]:
+    rows = (await db.execute(
+        select(Customer)
+        .where(Customer.restaurant_id == restaurant_id)
+        .order_by(Customer.lifetime_stamps.desc())
+        .limit(limit)
+    )).scalars().all()
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "phone": c.phone,
+            "stamps": c.stamps,
+            "threshold": c.threshold,
+            "lifetime_stamps": c.lifetime_stamps,
+            "redemptions": c.redemptions,
+            "has_coupon": c.stamps >= c.threshold,
+            "member_since": c.member_since.isoformat(),
+            "rank": i + 1,
+        }
+        for i, c in enumerate(rows)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Customers list
 # ---------------------------------------------------------------------------
 
 @router.get("/customers")
@@ -60,8 +99,8 @@ async def list_customers(
     _: StaffUser = Depends(get_current_staff),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    with_coupon: bool = Query(default=False, description="Solo clientes con sellos >= threshold"),
-    search: str | None = Query(default=None, description="Buscar por nombre o email"),
+    with_coupon: bool = Query(default=False),
+    search: str | None = Query(default=None),
 ) -> dict[str, object]:
     base_filter = [Customer.restaurant_id == restaurant_id]
     if with_coupon:
@@ -101,6 +140,87 @@ async def list_customers(
 
 
 # ---------------------------------------------------------------------------
+# Customer actions (manager only)
+# ---------------------------------------------------------------------------
+
+@router.post("/customers/{customer_id}/redeem")
+async def manual_redeem(
+    customer_id: str,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    manager: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    customer = (await db.execute(
+        select(Customer).where(Customer.id == customer_id, Customer.restaurant_id == restaurant_id)
+    )).scalar_one_or_none()
+    if not customer:
+        raise api_error(404, "not_found", "customer not found")
+    if customer.stamps < customer.threshold:
+        raise api_error(400, "insufficient_stamps", f"necesita {customer.threshold} sellos, tiene {customer.stamps}")
+
+    deducted = customer.threshold
+    customer.stamps -= deducted
+    customer.redemptions += 1
+    db.add(Transaction(
+        id=str(uuid4()),
+        customer_id=customer.id,
+        staff_user_id=manager.id,
+        kind=TransactionKind.REDEEM.value,
+        stamps_delta=-deducted,
+        qr_jti=f"admin_{uuid4().hex}",
+    ))
+    await db.commit()
+    return {
+        "new_balance": customer.stamps,
+        "redemptions": customer.redemptions,
+        "customer_name": customer.name,
+    }
+
+
+class AdjustStampsRequest(BaseModel):
+    delta: int
+
+
+@router.post("/customers/{customer_id}/adjust-stamps")
+async def adjust_stamps(
+    customer_id: str,
+    payload: AdjustStampsRequest,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    manager: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    if payload.delta == 0:
+        raise api_error(400, "invalid_input", "delta no puede ser cero")
+
+    customer = (await db.execute(
+        select(Customer).where(Customer.id == customer_id, Customer.restaurant_id == restaurant_id)
+    )).scalar_one_or_none()
+    if not customer:
+        raise api_error(404, "not_found", "customer not found")
+
+    new_stamps = max(0, customer.stamps + payload.delta)
+    actual_delta = new_stamps - customer.stamps
+    customer.stamps = new_stamps
+    if actual_delta > 0:
+        customer.lifetime_stamps += actual_delta
+
+    db.add(Transaction(
+        id=str(uuid4()),
+        customer_id=customer.id,
+        staff_user_id=manager.id,
+        kind=TransactionKind.ACCRUAL.value if payload.delta > 0 else TransactionKind.REDEEM.value,
+        stamps_delta=actual_delta if actual_delta != 0 else payload.delta,
+        qr_jti=f"admin_{uuid4().hex}",
+    ))
+    await db.commit()
+    return {
+        "new_balance": customer.stamps,
+        "lifetime_stamps": customer.lifetime_stamps,
+        "customer_name": customer.name,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Transactions
 # ---------------------------------------------------------------------------
 
@@ -127,9 +247,87 @@ async def list_transactions(
             "customer_name": customer.name,
             "staff_name": staff.name if staff else None,
             "created_at": tx.created_at.isoformat(),
+            "is_manual": tx.qr_jti.startswith("admin_"),
         }
         for tx, customer, staff in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Program config (manager only to write)
+# ---------------------------------------------------------------------------
+
+@router.get("/config")
+async def get_config(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(get_current_staff),
+) -> dict[str, object]:
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        return {"threshold": 10, "reward_name": "Papas fritas gratis", "tier_name": "Maisonero"}
+    return {
+        "threshold": config.threshold,
+        "reward_name": config.reward_name,
+        "tier_name": config.tier_name,
+    }
+
+
+class UpdateConfigRequest(BaseModel):
+    threshold: int | None = None
+    reward_name: str | None = None
+    tier_name: str | None = None
+
+
+@router.patch("/config")
+async def update_config(
+    payload: UpdateConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    if payload.threshold is not None and not (1 <= payload.threshold <= 50):
+        raise api_error(400, "invalid_input", "El umbral debe estar entre 1 y 50 sellos")
+
+    from datetime import datetime, timezone
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        config = RestaurantConfig(
+            restaurant_id=restaurant_id,
+            threshold=payload.threshold if payload.threshold is not None else 10,
+            reward_name=payload.reward_name or "Papas fritas gratis",
+            tier_name=payload.tier_name or "Maisonero",
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(config)
+    else:
+        if payload.threshold is not None:
+            config.threshold = payload.threshold
+        if payload.reward_name is not None:
+            config.reward_name = payload.reward_name.strip()
+        if payload.tier_name is not None:
+            config.tier_name = payload.tier_name.strip()
+
+    if payload.threshold is not None:
+        await db.execute(
+            sql_update(Customer)
+            .where(Customer.restaurant_id == restaurant_id)
+            .values(threshold=payload.threshold)
+        )
+
+    if payload.tier_name is not None:
+        await db.execute(
+            sql_update(Customer)
+            .where(Customer.restaurant_id == restaurant_id)
+            .values(tier=payload.tier_name.strip())
+        )
+
+    await db.commit()
+    return {
+        "threshold": config.threshold,
+        "reward_name": config.reward_name,
+        "tier_name": config.tier_name,
+    }
 
 
 # ---------------------------------------------------------------------------

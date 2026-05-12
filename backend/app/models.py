@@ -89,3 +89,13 @@ class PendingOtp(Base):
     phone: Mapped[str] = mapped_column(String(40), primary_key=True)
     code: Mapped[str] = mapped_column(String(10))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RestaurantConfig(Base):
+    __tablename__ = "restaurant_configs"
+
+    restaurant_id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    threshold: Mapped[int] = mapped_column(Integer, default=10)
+    reward_name: Mapped[str] = mapped_column(String(200), default="Papas fritas gratis")
+    tier_name: Mapped[str] = mapped_column(String(80), default="Maisonero")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
