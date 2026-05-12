@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,6 +147,7 @@ async def list_customers(
 @router.post("/customers/{customer_id}/redeem")
 async def manual_redeem(
     customer_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
     manager: StaffUser = Depends(require_manager),
@@ -176,7 +176,7 @@ async def manual_redeem(
     customer_name = customer.name
     customer_phone = customer.phone
     await db.commit()
-    asyncio.create_task(service.send_redemption_email(customer_name, customer_phone, reward_name))
+    background_tasks.add_task(service.send_redemption_email, customer_name, customer_phone, reward_name)
     return {
         "new_balance": customer.stamps,
         "redemptions": customer.redemptions,

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timezone
 from typing import Literal, cast
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -281,6 +280,7 @@ async def accrue(
 @router.post("/transactions/redeem", response_model=TransactionResponse)
 async def redeem(
     payload: AccrueRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     staff: StaffUser = Depends(get_current_staff),
     restaurant_id: str = Depends(get_restaurant_id),
@@ -293,7 +293,7 @@ async def redeem(
     config = await db.get(RestaurantConfig, restaurant_id)
     reward_name = config.reward_name if config else "Papas fritas gratis"
     await db.commit()
-    asyncio.create_task(service.send_redemption_email(customer.name, customer.phone, reward_name))
+    background_tasks.add_task(service.send_redemption_email, customer.name, customer.phone, reward_name)
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
@@ -333,7 +333,7 @@ async def request_password_reset(
             ttl_seconds=30 * 60,
         )
         reset_url = f"{settings.pos_app_url}/reset?token={token}"
-        asyncio.create_task(service.send_password_reset_email(staff.email, staff.name, reset_url))
+        await service.send_password_reset_email(staff.email, staff.name, reset_url)
     return Response(status_code=204)
 
 
