@@ -146,10 +146,10 @@ export default function HomePage(): JSX.Element {
       {/* Header marca */}
       <header className="mb-6 flex items-center justify-between">
         <img
-          src="/frittes-logo.jpg"
+          src="/frittes-logo.png"
           alt="Frittes Maison"
           className="h-24 w-auto object-contain"
-          style={{ mixBlendMode: "multiply" }}
+          
         />
         <button
           type="button"

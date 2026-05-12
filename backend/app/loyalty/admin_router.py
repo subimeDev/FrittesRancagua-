@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
@@ -8,6 +9,7 @@ from sqlalchemy import func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import api_error, get_current_staff, get_db, get_restaurant_id
+from app.loyalty import service
 from app.models import Customer, RestaurantConfig, StaffRole, StaffUser, Transaction, TransactionKind
 from app.security import hash_password
 
@@ -169,11 +171,16 @@ async def manual_redeem(
         stamps_delta=-deducted,
         qr_jti=f"admin_{uuid4().hex}",
     ))
+    config = await db.get(RestaurantConfig, restaurant_id)
+    reward_name = config.reward_name if config else "Papas fritas gratis"
+    customer_name = customer.name
+    customer_phone = customer.phone
     await db.commit()
+    asyncio.create_task(service.send_redemption_email(customer_name, customer_phone, reward_name))
     return {
         "new_balance": customer.stamps,
         "redemptions": customer.redemptions,
-        "customer_name": customer.name,
+        "customer_name": customer_name,
     }
 
 

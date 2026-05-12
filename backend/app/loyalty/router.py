@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,7 +26,7 @@ from app.schemas import (
     StaffSessionResponse,
     TransactionResponse,
 )
-from app.security import create_token, decode_qr_claims, decode_token, revoke_jti
+from app.security import create_token, decode_qr_claims, decode_token, hash_password, revoke_jti
 from app.loyalty import service
 from app.loyalty.google_wallet import build_save_url, create_loyalty_class_if_needed
 
@@ -288,9 +290,71 @@ async def redeem(
     customer, kind = await service.redeem_transaction(
         db, staff_user=staff, claims=claims, restaurant_id=restaurant_id
     )
+    config = await db.get(RestaurantConfig, restaurant_id)
+    reward_name = config.reward_name if config else "Papas fritas gratis"
     await db.commit()
+    asyncio.create_task(service.send_redemption_email(customer.name, customer.phone, reward_name))
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
         customer_name=customer.name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Staff password reset
+# ---------------------------------------------------------------------------
+
+class PasswordResetRequestPayload(BaseModel):
+    email: str
+
+
+class PasswordResetConfirmPayload(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/staff/auth/request-password-reset", status_code=204)
+async def request_password_reset(
+    payload: PasswordResetRequestPayload,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> Response:
+    email = payload.email.strip().lower()
+    staff = (await db.execute(
+        select(StaffUser).where(StaffUser.restaurant_id == restaurant_id, StaffUser.email == email, StaffUser.is_active.is_(True))
+    )).scalar_one_or_none()
+    if staff:
+        settings = get_settings()
+        token, _ = create_token(
+            subject=staff.id,
+            scope="password_reset",
+            audience=restaurant_id,
+            ttl_seconds=30 * 60,
+        )
+        reset_url = f"{settings.pos_app_url}/reset?token={token}"
+        asyncio.create_task(service.send_password_reset_email(staff.email, staff.name, reset_url))
+    return Response(status_code=204)
+
+
+@router.post("/staff/auth/confirm-password-reset", status_code=204)
+async def confirm_password_reset(
+    payload: PasswordResetConfirmPayload,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> Response:
+    try:
+        claims = decode_token(payload.token, expected_scope="password_reset")
+    except ValueError:
+        raise api_error(400, "invalid_token", "El enlace es inválido o ha expirado")
+    if len(payload.new_password) < 8:
+        raise api_error(400, "invalid_input", "La contraseña debe tener al menos 8 caracteres")
+    staff_id = str(claims["sub"])
+    staff = (await db.execute(
+        select(StaffUser).where(StaffUser.id == staff_id, StaffUser.restaurant_id == restaurant_id, StaffUser.is_active.is_(True))
+    )).scalar_one_or_none()
+    if not staff:
+        raise api_error(400, "invalid_token", "El enlace es inválido o ha expirado")
+    staff.password_hash = hash_password(payload.new_password)
+    await db.commit()
+    return Response(status_code=204)

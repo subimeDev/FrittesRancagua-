@@ -15,7 +15,7 @@ export function Onboarding({ branding }: OnboardingProps): JSX.Element {
         src={branding.logoSrc}
         alt={branding.name}
         className="mx-auto h-48 w-auto object-contain"
-        style={{ mixBlendMode: "multiply" }}
+        
       />
       <p className="mt-2 text-sm text-ink-muted">{branding.tagline}</p>
 

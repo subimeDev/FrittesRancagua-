@@ -164,6 +164,79 @@ async def _send_otp_email(email: str, code: str) -> None:
         logger.warning("OTP email delivery failed for %s (code=%s): %s", email, code, exc)
 
 
+async def send_redemption_email(customer_name: str, customer_email: str, reward_name: str) -> None:
+    import logging
+    logger = logging.getLogger(__name__)
+    settings = get_settings()
+    if not settings.resend_api_key:
+        logger.info("RESEND not set — skip redemption email for %s", customer_email)
+        return
+    if "@" not in customer_email:
+        return
+    try:
+        import resend as resend_sdk
+        resend_sdk.api_key = settings.resend_api_key
+        first_name = customer_name.split()[0] if customer_name else customer_name
+        resend_sdk.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [customer_email],
+            "subject": f"¡Canjeaste tu premio en Frittes Maison! 🎁",
+            "html": (
+                f"<div style='font-family:sans-serif;max-width:460px;margin:auto;padding:32px;background:#F5F1E8;border-radius:16px'>"
+                f"<div style='text-align:center;margin-bottom:24px'>"
+                f"<h1 style='font-size:28px;font-weight:900;color:#1A1815;margin:0'>FRITTES</h1>"
+                f"<p style='font-style:italic;color:#6B6660;margin:0'>maison</p>"
+                f"</div>"
+                f"<div style='background:#FFD23F;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px'>"
+                f"<p style='font-size:40px;margin:0'>🎁</p>"
+                f"<h2 style='color:#1A1815;margin:8px 0 4px'>¡Premio canjeado!</h2>"
+                f"<p style='color:#1A1815;font-weight:600;font-size:18px;margin:0'>{reward_name}</p>"
+                f"</div>"
+                f"<p style='color:#1A1815'>Hola <strong>{first_name}</strong>, acabas de canjear tu premio en Frittes Maison.</p>"
+                f"<p style='color:#6B6660;font-size:14px'>Preséntate en caja con este correo si el cajero lo solicita. ¡Que lo disfrutes!</p>"
+                f"<hr style='border:none;border-top:1px solid #E2DCCC;margin:24px 0'>"
+                f"<p style='color:#6B6660;font-size:12px;text-align:center'>Club Frittes · Rancagua · "
+                f"<a href='https://frittesrancagua-production.up.railway.app' style='color:#E8B82E'>Mi pase</a></p>"
+                f"</div>"
+            ),
+        })
+    except Exception as exc:
+        logger.warning("Redemption email failed for %s: %s", customer_email, exc)
+
+
+async def send_password_reset_email(staff_email: str, staff_name: str, reset_url: str) -> None:
+    import logging
+    logger = logging.getLogger(__name__)
+    settings = get_settings()
+    if not settings.resend_api_key:
+        logger.warning("RESEND not set — reset link for %s: %s", staff_email, reset_url)
+        return
+    try:
+        import resend as resend_sdk
+        resend_sdk.api_key = settings.resend_api_key
+        first_name = staff_name.split()[0] if staff_name else "Staff"
+        resend_sdk.Emails.send({
+            "from": settings.resend_from_email,
+            "to": [staff_email],
+            "subject": "Restablece tu contraseña — Frittes POS",
+            "html": (
+                f"<div style='font-family:sans-serif;max-width:460px;margin:auto;padding:32px;background:#F5F1E8;border-radius:16px'>"
+                f"<h1 style='font-size:22px;font-weight:900;color:#1A1815'>FRITTES <span style='font-style:italic;font-weight:400;color:#6B6660'>maison</span></h1>"
+                f"<h2 style='color:#1A1815'>Restablecer contraseña</h2>"
+                f"<p style='color:#1A1815'>Hola <strong>{first_name}</strong>, recibimos una solicitud para restablecer tu contraseña del sistema POS.</p>"
+                f"<div style='text-align:center;margin:32px 0'>"
+                f"<a href='{reset_url}' style='background:#1A1815;color:#FFD23F;text-decoration:none;padding:14px 32px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>"
+                f"Restablecer contraseña</a>"
+                f"</div>"
+                f"<p style='color:#6B6660;font-size:13px'>Este enlace expira en <strong>30 minutos</strong>. Si no solicitaste esto, ignora este correo.</p>"
+                f"<p style='color:#6B6660;font-size:12px'>O copia este enlace: <br><a href='{reset_url}' style='color:#E8B82E;word-break:break-all'>{reset_url}</a></p>"
+                f"</div>"
+            ),
+        })
+    except Exception as exc:
+        logger.warning("Password reset email failed for %s: %s", staff_email, exc)
+
+
 async def request_otp(db: AsyncSession, phone: str) -> None:
     expires = _now() + timedelta(minutes=5)
     code = _generate_otp()

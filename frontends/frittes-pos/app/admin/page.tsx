@@ -192,10 +192,10 @@ function AdminPageInner(): JSX.Element {
       <header className="mb-5 flex items-center justify-between">
         <button type="button" onClick={() => router.push("/")} className="flex items-center gap-3">
           <img
-            src="/frittes-logo.jpg"
+            src="/frittes-logo.png"
             alt="Frittes Maison"
             className="h-12 w-auto object-contain"
-            style={{ mixBlendMode: "multiply" }}
+            
           />
           <div className="border-l border-line pl-3 text-left">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-black/40">
