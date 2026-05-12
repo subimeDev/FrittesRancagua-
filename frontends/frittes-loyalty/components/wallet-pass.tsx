@@ -119,12 +119,11 @@ export function WalletPass({
             />
             <div className="relative flex items-center justify-between">
               <FrittesMark className="h-12 w-12" />
-              <div className="text-right leading-tight">
-                <p className="font-display text-[18px] font-bold tracking-tight">FRITTES</p>
-                <p className="-mt-0.5 font-script text-[20px] leading-none text-ink">
-                  - maison -
-                </p>
-              </div>
+              <img
+                src="/frittes-logo.png"
+                alt="Frittes Maison"
+                className="h-12 w-auto object-contain"
+              />
             </div>
             <p className="relative mt-4 text-[10px] font-semibold uppercase tracking-wider2 text-ink/65">
               {branding.programName}
