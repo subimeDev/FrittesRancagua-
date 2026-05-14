@@ -113,6 +113,11 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   throw new ApiError("Network error", 0, "network_error", lastError);
 }
 
+export type RewardTierDto = {
+  stamps_required: number;
+  reward_name: string;
+};
+
 export type LoyaltyCustomerDto = {
   id: string;
   name: string;
@@ -124,6 +129,15 @@ export type LoyaltyCustomerDto = {
   redemptions: number;
   tier: string;
   member_since: string;
+  /** stamps_required of the milestones already claimed in the current card cycle. */
+  redeemed_tiers?: number[];
+};
+
+export type ProgramConfigDto = {
+  threshold: number;
+  reward_name: string;
+  tier_name: string;
+  tiers: RewardTierDto[];
 };
 
 export type RegisterDto = {

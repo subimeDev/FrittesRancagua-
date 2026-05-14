@@ -419,6 +419,12 @@ export default function PosHomePage(): JSX.Element {
             {result.kind === "accrual" ? "¡Sello sumado!" : "¡Premio canjeado!"}
           </p>
           <p className="text-2xl font-bold text-forest">{result.customer_name}</p>
+          {result.kind === "redeem" && result.reward_name ? (
+            <div className="rounded-xl bg-mustard/30 px-4 py-3">
+              <p className="text-sm text-black/50">Premio</p>
+              <p className="text-xl font-bold text-ink">🎁 {result.reward_name}</p>
+            </div>
+          ) : null}
           <div className="rounded-xl bg-cream px-4 py-3">
             <p className="text-sm text-black/50">Saldo actual</p>
             <p className="text-3xl font-bold text-ink">{result.new_balance} sellos</p>

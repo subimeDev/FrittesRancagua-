@@ -67,6 +67,7 @@ export type TransactionResult = {
   kind: "accrual" | "redeem";
   new_balance: number;
   customer_name: string;
+  reward_name?: string | null;
 };
 
 export function staffLogin(email: string, password: string): Promise<StaffSession> {

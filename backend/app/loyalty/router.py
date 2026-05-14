@@ -19,6 +19,7 @@ from app.schemas import (
     OtpRequest,
     OtpVerifyRequest,
     QrTokenResponse,
+    RedeemRequest,
     RegisterRequest,
     SessionResponse,
     StaffLoginRequest,
@@ -234,13 +235,20 @@ async def program_config(
     restaurant_id: str = Depends(get_restaurant_id),
 ) -> dict[str, object]:
     """Public endpoint — no auth required. Returns the current loyalty program settings."""
+    tiers = await service.tiers_payload(db, restaurant_id)
     config = await db.get(RestaurantConfig, restaurant_id)
     if not config:
-        return {"threshold": 10, "reward_name": "Papas fritas gratis", "tier_name": "Maisonero"}
+        return {
+            "threshold": tiers[-1]["stamps_required"],
+            "reward_name": tiers[-1]["reward_name"],
+            "tier_name": "Maisonero",
+            "tiers": tiers,
+        }
     return {
         "threshold": config.threshold,
         "reward_name": config.reward_name,
         "tier_name": config.tier_name,
+        "tiers": tiers,
     }
 
 
@@ -279,7 +287,7 @@ async def accrue(
 
 @router.post("/transactions/redeem", response_model=TransactionResponse)
 async def redeem(
-    payload: AccrueRequest,
+    payload: RedeemRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     staff: StaffUser = Depends(get_current_staff),
@@ -287,17 +295,16 @@ async def redeem(
 ) -> TransactionResponse:
     # Validate JWT first — no DB open yet. Raises QrTokenExpiredError / QrTokenInvalidError.
     claims = decode_qr_claims(payload.qr_token)
-    customer, kind = await service.redeem_transaction(
-        db, staff_user=staff, claims=claims, restaurant_id=restaurant_id
+    customer, kind, reward_name = await service.redeem_transaction(
+        db, staff_user=staff, claims=claims, restaurant_id=restaurant_id, tier_stamps=payload.tier_stamps
     )
-    config = await db.get(RestaurantConfig, restaurant_id)
-    reward_name = config.reward_name if config else "Papas fritas gratis"
     await db.commit()
     background_tasks.add_task(service.send_redemption_email, customer.name, customer.phone, reward_name)
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
         customer_name=customer.name,
+        reward_name=reward_name,
     )
 
 

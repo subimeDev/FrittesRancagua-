@@ -24,6 +24,7 @@ type CustomerRow = {
   threshold: number;
   lifetime_stamps: number;
   redemptions: number;
+  redeemed_tiers: number[];
   has_coupon: boolean;
   member_since: string;
 };
@@ -49,10 +50,16 @@ type StaffRow = {
   created_at: string;
 };
 
+type RewardTier = {
+  stamps_required: number;
+  reward_name: string;
+};
+
 type ProgramConfig = {
   threshold: number;
   reward_name: string;
   tier_name: string;
+  tiers: RewardTier[];
 };
 
 type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "staff";
@@ -426,6 +433,13 @@ function CustomersTab({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<{ id: string; text: string; ok: boolean } | null>(null);
+  const [tiers, setTiers] = useState<RewardTier[]>([]);
+
+  useEffect(() => {
+    adminRequest<{ tiers: RewardTier[] }>("/loyalty/admin/tiers", token)
+      .then((data) => setTiers([...data.tiers].sort((a, b) => a.stamps_required - b.stamps_required)))
+      .catch(() => setTiers([]));
+  }, [token]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -448,15 +462,20 @@ function CustomersTab({
 
   useEffect(() => { load(); }, [load]);
 
-  async function handleRedeem(c: CustomerRow): Promise<void> {
+  async function handleRedeem(c: CustomerRow, tierStamps?: number): Promise<void> {
     setActionLoading(c.id);
     try {
-      const res = await adminRequest<{ new_balance: number; redemptions: number }>(
+      const res = await adminRequest<{ new_balance: number; redemptions: number; reward_name?: string }>(
         `/loyalty/admin/customers/${c.id}/redeem`,
         token,
-        { method: "POST" },
+        { method: "POST", body: tierStamps !== undefined ? { tier_stamps: tierStamps } : {} },
       );
-      setActionMsg({ id: c.id, text: `Premio canjeado ✓ — saldo: ${res.new_balance} sellos`, ok: true });
+      const rewardLabel = res.reward_name ? `"${res.reward_name}" ` : "";
+      setActionMsg({
+        id: c.id,
+        text: `Premio ${rewardLabel}canjeado ✓ — saldo: ${res.new_balance} sellos`,
+        ok: true,
+      });
       load();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Error al canjear";
@@ -515,6 +534,11 @@ function CustomersTab({
               const isActing = actionLoading === c.id || actionLoading === `${c.id}_adj`;
               const msg = actionMsg?.id === c.id ? actionMsg : null;
               const pct = Math.min(100, Math.round((c.stamps / c.threshold) * 100));
+              const availableTiers = tiers.filter(
+                (t) =>
+                  c.stamps >= t.stamps_required &&
+                  !(c.redeemed_tiers ?? []).includes(t.stamps_required),
+              );
 
               return (
                 <li key={c.id}>
@@ -573,16 +597,18 @@ function CustomersTab({
 
                       {isManager && (
                         <div className="flex flex-wrap gap-2">
-                          {c.has_coupon && (
+                          {availableTiers.map((t) => (
                             <button
+                              key={t.stamps_required}
                               type="button"
                               disabled={isActing}
-                              onClick={() => { void handleRedeem(c); }}
+                              onClick={() => { void handleRedeem(c, t.stamps_required); }}
                               className="flex items-center gap-1.5 rounded-xl bg-forest px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-60 active:scale-95 transition"
                             >
-                              🎁 Canjear premio
+                              🎁 Canjear: {t.reward_name}
+                              <span className="rounded-full bg-white/20 px-1.5 text-xs">{t.stamps_required}</span>
                             </button>
-                          )}
+                          ))}
                           <button
                             type="button"
                             disabled={isActing}
@@ -705,12 +731,10 @@ function TransactionsTab({ token }: { token: string }): JSX.Element {
 // ─── Config Tab ───────────────────────────────────────────────────────────────
 
 function ConfigTab({ token }: { token: string }): JSX.Element {
-  const [config, setConfig] = useState<ProgramConfig>({
-    threshold: 10,
-    reward_name: "Papas fritas gratis",
-    tier_name: "Maisonero",
-  });
-  const [draft, setDraft] = useState<ProgramConfig>(config);
+  const [tiers, setTiers] = useState<RewardTier[]>([]);
+  const [savedTiers, setSavedTiers] = useState<RewardTier[]>([]);
+  const [tierName, setTierName] = useState("Maisonero");
+  const [savedTierName, setSavedTierName] = useState("Maisonero");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -718,21 +742,82 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
 
   useEffect(() => {
     adminRequest<ProgramConfig>("/loyalty/admin/config", token)
-      .then((cfg) => { setConfig(cfg); setDraft(cfg); })
+      .then((cfg) => {
+        const list =
+          cfg.tiers && cfg.tiers.length > 0
+            ? cfg.tiers
+            : [{ stamps_required: cfg.threshold, reward_name: cfg.reward_name }];
+        setTiers(list);
+        setSavedTiers(list);
+        setTierName(cfg.tier_name);
+        setSavedTierName(cfg.tier_name);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
 
+  function updateTier(index: number, patch: Partial<RewardTier>): void {
+    setTiers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+  }
+  function addTier(): void {
+    setTiers((prev) => {
+      if (prev.length >= 10) return prev;
+      const maxStamps = prev.reduce((m, t) => Math.max(m, t.stamps_required), 0);
+      return [...prev, { stamps_required: maxStamps + 5, reward_name: "" }];
+    });
+  }
+  function removeTier(index: number): void {
+    setTiers((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const sortedTiers = [...tiers].sort((a, b) => a.stamps_required - b.stamps_required);
+  const tiersDirty = JSON.stringify(savedTiers) !== JSON.stringify(tiers);
+  const nameDirty = tierName.trim() !== savedTierName;
+  const isDirty = tiersDirty || nameDirty;
+
+  function validate(): string | null {
+    if (tiers.length === 0) return "Agrega al menos un nivel de recompensa";
+    const seen = new Set<number>();
+    for (const t of tiers) {
+      if (!Number.isFinite(t.stamps_required) || t.stamps_required < 1 || t.stamps_required > 50)
+        return "Cada nivel debe estar entre 1 y 50 sellos";
+      if (seen.has(t.stamps_required)) return "No puede haber dos niveles con la misma cantidad de sellos";
+      seen.add(t.stamps_required);
+      if (!t.reward_name.trim()) return "Cada nivel necesita un nombre de premio";
+    }
+    return null;
+  }
+
   async function handleSave(): Promise<void> {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const updated = await adminRequest<ProgramConfig>("/loyalty/admin/config", token, {
-        method: "PATCH",
-        body: draft,
-      });
-      setConfig(updated);
-      setDraft(updated);
+      if (tiersDirty) {
+        const res = await adminRequest<{ tiers: RewardTier[] }>("/loyalty/admin/tiers", token, {
+          method: "PUT",
+          body: {
+            tiers: tiers.map((t) => ({
+              stamps_required: t.stamps_required,
+              reward_name: t.reward_name.trim(),
+            })),
+          },
+        });
+        setTiers(res.tiers);
+        setSavedTiers(res.tiers);
+      }
+      if (nameDirty) {
+        const res = await adminRequest<ProgramConfig>("/loyalty/admin/config", token, {
+          method: "PATCH",
+          body: { tier_name: tierName.trim() },
+        });
+        setTierName(res.tier_name);
+        setSavedTierName(res.tier_name);
+      }
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -742,90 +827,113 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
     }
   }
 
-  const isDirty =
-    draft.threshold !== config.threshold ||
-    draft.reward_name !== config.reward_name ||
-    draft.tier_name !== config.tier_name;
-
   if (loading) return <TabLoading />;
+
+  const topStamps =
+    sortedTiers.length > 0 ? sortedTiers[sortedTiers.length - 1].stamps_required : 0;
 
   return (
     <section className="space-y-4">
-      {/* Live preview */}
+      {/* Live preview — la escalera de hitos */}
       <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-black/40">
-          Vista previa del pase
+          Vista previa de la tarjeta
         </p>
         <div className="mx-auto max-w-xs overflow-hidden rounded-2xl bg-ink text-white shadow-lg">
           <div className="px-5 py-4" style={{ background: "linear-gradient(135deg,#FFD23F,#E8B82E)" }}>
             <p className="text-xs font-bold uppercase tracking-widest text-ink/60">Frittes Maison</p>
-            <p className="mt-0.5 text-xl font-black text-ink">{draft.tier_name || "Maisonero"}</p>
+            <p className="mt-0.5 text-xl font-black text-ink">{tierName || "Maisonero"}</p>
           </div>
-          <div className="px-5 py-4 space-y-3">
-            <div className="flex justify-between text-xs text-white/60">
-              <span>Premio</span>
-              <span className="font-semibold text-white">{draft.reward_name || "—"}</span>
-            </div>
-            <div>
-              <div className="mb-1 flex justify-between text-xs">
-                <span className="text-white/60">Progreso</span>
-                <span className="font-semibold text-mustard">0/{draft.threshold} sellos</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/20">
-                <div className="h-full w-0 rounded-full bg-mustard" />
-              </div>
-            </div>
+          <div className="space-y-2 px-5 py-4">
+            {sortedTiers.length === 0 ? (
+              <p className="text-xs text-white/50">Sin niveles configurados.</p>
+            ) : (
+              sortedTiers.map((t, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <span className="grid h-7 w-7 flex-none place-items-center rounded-full bg-mustard text-[11px] font-black text-ink">
+                    {t.stamps_required}
+                  </span>
+                  <span className="flex-1 truncate text-white/90">{t.reward_name || "—"}</span>
+                  {t.stamps_required === topStamps && (
+                    <span className="rounded-full bg-white/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-mustard">
+                      Reinicia
+                    </span>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* Form */}
-      <div className="rounded-2xl border border-line bg-white p-5 shadow-sm space-y-5">
-        <p className="text-sm font-bold text-ink">Configuración del programa</p>
-
-        {/* Threshold */}
-        <label className="block space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-ink">Umbral de sellos</span>
-            <span className="rounded-xl bg-mustard px-3 py-1 text-sm font-black text-ink tabular-nums">
-              {draft.threshold} sellos
-            </span>
-          </div>
-          <input
-            type="range"
-            min={1}
-            max={30}
-            value={draft.threshold}
-            onChange={(e) => setDraft({ ...draft, threshold: Number(e.target.value) })}
-            className="w-full accent-ink"
-          />
-          <p className="text-xs text-black/40">
-            Los clientes necesitarán {draft.threshold} sellos para obtener su premio.
-            Actualiza el umbral de todos los clientes existentes.
+      {/* Niveles de recompensa */}
+      <div className="space-y-4 rounded-2xl border border-line bg-white p-5 shadow-sm">
+        <div>
+          <p className="text-sm font-bold text-ink">Niveles de recompensa</p>
+          <p className="mt-0.5 text-xs text-black/40">
+            El cliente desbloquea un premio en cada hito. Al canjear el nivel más alto, su tarjeta vuelve a 0.
           </p>
-        </label>
+        </div>
 
-        {/* Reward name */}
-        <label className="block space-y-1.5">
-          <span className="text-sm font-semibold text-ink">Nombre del premio</span>
-          <input
-            type="text"
-            value={draft.reward_name}
-            onChange={(e) => setDraft({ ...draft, reward_name: e.target.value })}
-            maxLength={100}
-            placeholder="Ej: Papas fritas gratis"
-            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-black/30 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
-          />
-          <p className="text-xs text-black/40">Lo que recibe el cliente al canjear su cupón.</p>
-        </label>
+        <div className="space-y-2">
+          {sortedTiers.map((t) => {
+            const realIndex = tiers.indexOf(t);
+            return (
+              <div key={realIndex} className="flex items-center gap-2">
+                <div className="flex items-center overflow-hidden rounded-xl border border-line bg-cream">
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={t.stamps_required}
+                    onChange={(e) => updateTier(realIndex, { stamps_required: Number(e.target.value) })}
+                    className="w-16 bg-transparent px-3 py-2.5 text-sm font-bold text-ink focus:outline-none"
+                  />
+                  <span className="border-l border-line px-2 py-2.5 text-[10px] uppercase tracking-wide text-black/40">
+                    sellos
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={t.reward_name}
+                  onChange={(e) => updateTier(realIndex, { reward_name: e.target.value })}
+                  maxLength={100}
+                  placeholder="Nombre del premio"
+                  className="flex-1 rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-black/30 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeTier(realIndex)}
+                  disabled={tiers.length <= 1}
+                  className="grid h-9 w-9 flex-none place-items-center rounded-xl border border-line text-black/40 hover:bg-cream disabled:opacity-30"
+                  aria-label="Eliminar nivel"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
 
-        {/* Tier name */}
+        {tiers.length < 10 && (
+          <button
+            type="button"
+            onClick={addTier}
+            className="w-full rounded-xl border border-dashed border-line py-2.5 text-sm font-semibold text-black/50 hover:bg-cream"
+          >
+            + Agregar nivel
+          </button>
+        )}
+      </div>
+
+      {/* Nombre del nivel / membresía */}
+      <div className="space-y-5 rounded-2xl border border-line bg-white p-5 shadow-sm">
         <label className="block space-y-1.5">
           <span className="text-sm font-semibold text-ink">Nombre del nivel</span>
           <input
             type="text"
-            value={draft.tier_name}
-            onChange={(e) => setDraft({ ...draft, tier_name: e.target.value })}
+            value={tierName}
+            onChange={(e) => setTierName(e.target.value)}
             maxLength={60}
             placeholder="Ej: Maisonero"
             className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-black/30 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
@@ -839,7 +947,11 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
           {isDirty && (
             <button
               type="button"
-              onClick={() => setDraft(config)}
+              onClick={() => {
+                setTiers(savedTiers);
+                setTierName(savedTierName);
+                setError("");
+              }}
               className="rounded-xl border border-line px-4 py-2.5 text-sm font-semibold text-black/60 hover:bg-cream"
             >
               Descartar
@@ -857,7 +969,7 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
 
         {saved && (
           <p className="rounded-xl bg-green-50 px-4 py-2.5 text-xs font-semibold text-green-700">
-            ✓ Configuración actualizada. El umbral de todos los clientes fue actualizado.
+            ✓ Configuración actualizada. El tamaño de tarjeta de todos los clientes se ajustó al nivel más alto.
           </p>
         )}
       </div>

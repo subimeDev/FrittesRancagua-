@@ -8,8 +8,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.loyalty.exceptions import CustomerNotFoundError, InsufficientStampsError, QrTokenAlreadyUsedError
-from app.models import Customer, PendingOtp, StaffUser, Transaction, TransactionKind
+from app.loyalty.exceptions import (
+    CustomerNotFoundError,
+    InsufficientStampsError,
+    QrTokenAlreadyUsedError,
+    RewardTierNotFoundError,
+    TierAlreadyRedeemedError,
+)
+from app.models import (
+    Customer,
+    PendingOtp,
+    RestaurantConfig,
+    RewardTier,
+    StaffUser,
+    Transaction,
+    TransactionKind,
+)
 from app.schemas import CustomerResponse, StaffPublic
 from app.security import (
     create_token,
@@ -35,11 +49,94 @@ def customer_to_response(customer: Customer) -> CustomerResponse:
         redemptions=customer.redemptions,
         tier=customer.tier,
         member_since=customer.member_since,
+        redeemed_tiers=list(customer.redeemed_tiers or []),
     )
 
 
 def staff_to_public(staff: StaffUser) -> StaffPublic:
     return StaffPublic(id=staff.id, email=staff.email, name=staff.name, role=staff.role)  # type: ignore[arg-type]
+
+
+async def resolve_tiers(db: AsyncSession, restaurant_id: str) -> list[tuple[int, str]]:
+    """Reward milestones for a restaurant, sorted ascending by stamps_required.
+
+    Falls back to a single tier derived from RestaurantConfig (or a sane default)
+    when no explicit tiers have been configured yet."""
+    rows = (
+        await db.execute(
+            select(RewardTier)
+            .where(RewardTier.restaurant_id == restaurant_id)
+            .order_by(RewardTier.stamps_required)
+        )
+    ).scalars().all()
+    if rows:
+        return [(r.stamps_required, r.reward_name) for r in rows]
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if config:
+        return [(config.threshold, config.reward_name)]
+    return [(10, "Papas fritas gratis")]
+
+
+async def tiers_payload(db: AsyncSession, restaurant_id: str) -> list[dict[str, object]]:
+    tiers = await resolve_tiers(db, restaurant_id)
+    return [{"stamps_required": stamps, "reward_name": name} for stamps, name in tiers]
+
+
+async def apply_redemption(
+    db: AsyncSession,
+    *,
+    customer: Customer,
+    staff_user_id: str | None,
+    restaurant_id: str,
+    tier_stamps: int | None,
+    qr_jti: str,
+) -> str:
+    """Redeem one reward milestone for `customer` and record the transaction.
+
+    Single-card-with-milestones model: claiming a non-top tier just marks it as
+    redeemed for the current cycle (stamps untouched); claiming the top tier
+    resets the card to 0. Returns the redeemed reward's name."""
+    tiers = await resolve_tiers(db, restaurant_id)
+    if not tiers:
+        raise InsufficientStampsError("not enough stamps")
+    redeemed = set(customer.redeemed_tiers or [])
+
+    if tier_stamps is None:
+        available = [(req, name) for req, name in tiers if customer.stamps >= req and req not in redeemed]
+        if not available:
+            raise InsufficientStampsError("not enough stamps")
+        target_req, target_name = available[-1]
+    else:
+        match = next(((req, name) for req, name in tiers if req == tier_stamps), None)
+        if match is None:
+            raise RewardTierNotFoundError("reward tier not found")
+        target_req, target_name = match
+        if customer.stamps < target_req:
+            raise InsufficientStampsError("not enough stamps")
+        if target_req in redeemed:
+            raise TierAlreadyRedeemedError("tier already redeemed")
+
+    top_req = tiers[-1][0]
+    if target_req == top_req:
+        stamps_delta = -customer.stamps
+        customer.stamps = 0
+        customer.redeemed_tiers = []
+    else:
+        stamps_delta = 0
+        customer.redeemed_tiers = sorted(redeemed | {target_req})
+    customer.redemptions += 1
+
+    db.add(
+        Transaction(
+            id=str(uuid4()),
+            customer_id=customer.id,
+            staff_user_id=staff_user_id,
+            kind=TransactionKind.REDEEM.value,
+            stamps_delta=stamps_delta,
+            qr_jti=qr_jti,
+        )
+    )
+    return target_name
 
 
 def create_customer_session(customer: Customer) -> tuple[str, datetime]:
@@ -324,7 +421,8 @@ async def redeem_transaction(
     staff_user: StaffUser,
     claims: dict[str, Any],
     restaurant_id: str,
-) -> tuple[Customer, str]:
+    tier_stamps: int | None = None,
+) -> tuple[Customer, str, str]:
     """Apply one reward redemption. `claims` must already be JWT-validated by the caller."""
     jti = str(claims["jti"])
     exp = datetime.fromtimestamp(int(claims["exp"]), tz=timezone.utc)
@@ -338,20 +436,14 @@ async def redeem_transaction(
     if not customer:
         raise CustomerNotFoundError("customer not found")
 
-    if customer.stamps < customer.threshold:
-        raise InsufficientStampsError("not enough stamps")
-
-    customer.stamps -= customer.threshold
-    customer.redemptions += 1
-    tx = Transaction(
-        id=str(uuid4()),
-        customer_id=customer.id,
+    reward_name = await apply_redemption(
+        db,
+        customer=customer,
         staff_user_id=staff_user.id,
-        kind=TransactionKind.REDEEM.value,
-        stamps_delta=-(customer.threshold),
+        restaurant_id=restaurant_id,
+        tier_stamps=tier_stamps,
         qr_jti=jti,
     )
-    db.add(tx)
     await revoke_jti(db, jti=jti, expires_at=exp)
     await db.flush()
-    return customer, tx.kind
+    return customer, TransactionKind.REDEEM.value, reward_name

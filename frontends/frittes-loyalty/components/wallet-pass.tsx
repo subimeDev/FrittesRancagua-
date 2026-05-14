@@ -8,9 +8,16 @@ import { track } from "@/lib/analytics";
 import type { LoyaltyCustomerDto } from "@/lib/api";
 import type { FrittesBranding } from "@/lib/branding";
 
+type WalletPassTier = {
+  stamps_required: number;
+  reward_name: string;
+  status: "redeemed" | "available" | "locked";
+};
+
 type WalletPassProps = {
   account: LoyaltyCustomerDto;
   branding: FrittesBranding;
+  tiers: WalletPassTier[];
   qrToken: string | null;
   isQrExpired: boolean;
   onRefreshQr: () => void;
@@ -30,6 +37,7 @@ const CONFETTI_COLORS = [
 export function WalletPass({
   account,
   branding,
+  tiers,
   qrToken,
   isQrExpired,
   onRefreshQr,
@@ -281,7 +289,12 @@ export function WalletPass({
           </header>
 
           <section className="p-5">
-            <StampGrid stamps={account.stamps} threshold={account.threshold} />
+            <StampGrid stamps={account.stamps} threshold={account.threshold} tiers={tiers} />
+            {tiers.length > 0 ? (
+              <p className="mt-2 text-center text-[9px] uppercase tracking-wider2 text-ink-muted">
+                🎁 recompensa en el sello {tiers.map((t) => t.stamps_required).join(" · ")}
+              </p>
+            ) : null}
 
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <DetailRow label="Total historico" value={`${account.lifetime_stamps}`} />
@@ -303,13 +316,16 @@ export function WalletPass({
 function StampGrid({
   stamps,
   threshold,
+  tiers,
 }: {
   stamps: number;
   threshold: number;
+  tiers: WalletPassTier[];
 }): JSX.Element {
   const filled =
     stamps % threshold || (stamps > 0 && stamps % threshold === 0 ? threshold : 0);
   const cols = threshold <= 8 ? 4 : 5;
+  const milestoneStamps = new Set(tiers.map((t) => t.stamps_required));
 
   return (
     <div
@@ -318,6 +334,7 @@ function StampGrid({
     >
       {Array.from({ length: threshold }).map((_, i) => {
         const isFilled = i < filled;
+        const isMilestone = milestoneStamps.has(i + 1);
         return (
           <div
             key={i}
@@ -325,9 +342,11 @@ function StampGrid({
               isFilled
                 ? "border-mustard-deep bg-mustard"
                 : "border-dashed border-line bg-cream-muted/40"
-            }`}
+            } ${isMilestone ? "ring-2 ring-forest ring-offset-1" : ""}`}
           >
-            {isFilled ? (
+            {isMilestone ? (
+              <span className="text-lg leading-none">🎁</span>
+            ) : isFilled ? (
               <div className="animate-stamp-in">
                 <FrittesMark className="h-7 w-7" />
               </div>

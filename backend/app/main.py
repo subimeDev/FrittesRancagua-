@@ -14,6 +14,8 @@ from app.loyalty.exceptions import (
     QrTokenAlreadyUsedError,
     QrTokenExpiredError,
     QrTokenInvalidError,
+    RewardTierNotFoundError,
+    TierAlreadyRedeemedError,
 )
 from app.loyalty.admin_router import router as admin_router
 from app.loyalty.router import router as loyalty_router
@@ -26,7 +28,7 @@ app = FastAPI(title="Frittes Loyalty API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Cookie", "X-Restaurant-Id"],
     allow_credentials=True,
 )
@@ -50,6 +52,19 @@ async def qr_replayed_handler(_: Request, exc: QrTokenAlreadyUsedError) -> JSONR
 @app.exception_handler(InsufficientStampsError)
 async def insufficient_stamps_handler(_: Request, exc: InsufficientStampsError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"code": "insufficient_stamps", "message": "not enough stamps"})
+
+
+@app.exception_handler(TierAlreadyRedeemedError)
+async def tier_already_redeemed_handler(_: Request, exc: TierAlreadyRedeemedError) -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={"code": "tier_already_redeemed", "message": "reward tier already redeemed this cycle"},
+    )
+
+
+@app.exception_handler(RewardTierNotFoundError)
+async def reward_tier_not_found_handler(_: Request, exc: RewardTierNotFoundError) -> JSONResponse:
+    return JSONResponse(status_code=404, content={"code": "tier_not_found", "message": "reward tier not found"})
 
 
 @app.exception_handler(CustomerNotFoundError)

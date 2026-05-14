@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -38,6 +38,8 @@ class Customer(Base):
     lifetime_stamps: Mapped[int] = mapped_column(Integer, default=0)
     redemptions: Mapped[int] = mapped_column(Integer, default=0)
     threshold: Mapped[int] = mapped_column(Integer, default=10)
+    # stamps_required values of the reward tiers already claimed in the current card cycle.
+    redeemed_tiers: Mapped[list[int]] = mapped_column(JSON, default=list)
     member_since: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -99,3 +101,17 @@ class RestaurantConfig(Base):
     reward_name: Mapped[str] = mapped_column(String(200), default="Papas fritas gratis")
     tier_name: Mapped[str] = mapped_column(String(80), default="Maisonero")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RewardTier(Base):
+    """A milestone on the loyalty card: at `stamps_required` stamps the customer
+    unlocks `reward_name`. The tier with the highest `stamps_required` is the card
+    size — redeeming it resets the customer's stamps to 0."""
+
+    __tablename__ = "reward_tiers"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    restaurant_id: Mapped[str] = mapped_column(String(80), index=True)
+    stamps_required: Mapped[int] = mapped_column(Integer)
+    reward_name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -19,3 +19,11 @@ class InsufficientStampsError(Exception):
 
 class CustomerNotFoundError(Exception):
     pass
+
+
+class TierAlreadyRedeemedError(Exception):
+    pass
+
+
+class RewardTierNotFoundError(Exception):
+    pass

@@ -15,7 +15,15 @@ import { useOnlineStatus } from "@/lib/use-online-status";
 import { useQrToken } from "@/lib/use-qr-token";
 import { useLoyaltyAccount } from "@/lib/use-loyalty-account";
 
-type ProgramConfig = { threshold: number; reward_name: string; tier_name: string };
+type RewardTier = { stamps_required: number; reward_name: string };
+type ProgramConfig = {
+  threshold: number;
+  reward_name: string;
+  tier_name: string;
+  tiers: RewardTier[];
+};
+type TierStatus = "redeemed" | "available" | "locked";
+type TierView = RewardTier & { status: TierStatus };
 
 export default function HomePage(): JSX.Element {
   const { state, sessionToken, refresh, signOut } = useLoyaltyAccount(branding.slug);
@@ -89,6 +97,21 @@ export default function HomePage(): JSX.Element {
     ? { ...branding, rewardCopy: programConfig.reward_name }
     : branding;
   const rewardCopy = effectiveBranding.rewardCopy;
+
+  const redeemedTiers = account.redeemed_tiers ?? [];
+  const tierViews: TierView[] = (programConfig?.tiers ?? [])
+    .slice()
+    .sort((a, b) => a.stamps_required - b.stamps_required)
+    .map((t) => ({
+      ...t,
+      status: redeemedTiers.includes(t.stamps_required)
+        ? "redeemed"
+        : account.stamps >= t.stamps_required
+          ? "available"
+          : "locked",
+    }));
+  const nextTier = tierViews.find((t) => t.status === "locked");
+  const availableCount = tierViews.filter((t) => t.status === "available").length;
 
   async function handleWallet(): Promise<void> {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -174,9 +197,13 @@ export default function HomePage(): JSX.Element {
           ¡Hola, {account.name.split(" ")[0]}!
         </p>
         <p className="mt-1 text-sm text-ink-muted">
-          {ready
-            ? `Tienes ${account.stamps} sellos. Puedes canjear ${rewardCopy}.`
-            : `Te faltan ${account.threshold - account.stamps} sellos para ${rewardCopy}.`}
+          {availableCount > 0
+            ? `Tienes ${availableCount} ${availableCount === 1 ? "premio listo" : "premios listos"} para canjear.`
+            : nextTier
+              ? `Te faltan ${nextTier.stamps_required - account.stamps} sellos para ${nextTier.reward_name}.`
+              : ready
+                ? `Tienes ${account.stamps} sellos. Puedes canjear ${rewardCopy}.`
+                : `Te faltan ${account.threshold - account.stamps} sellos para ${rewardCopy}.`}
         </p>
       </section>
 
@@ -184,6 +211,7 @@ export default function HomePage(): JSX.Element {
       <WalletPass
         account={account}
         branding={effectiveBranding}
+        tiers={tierViews}
         qrToken={qrToken}
         isQrExpired={isExpired}
         onRefreshQr={() => {
@@ -210,44 +238,93 @@ export default function HomePage(): JSX.Element {
         QR {isExpired ? "expirado" : `vigente (${secondsLeft}s)`}
       </p>
 
-      {/* Tu proxima recompensa — hace el valor proposition visible sin voltear el pase */}
+      {/* Recompensas del club — cada hito con su estado */}
       <section className="mx-auto mt-5 max-w-sm">
         <div className="rounded-2xl border border-line bg-cream-muted/50 p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl leading-none">🎁</span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
-                Tu proxima recompensa
-              </p>
-              <p className="mt-0.5 font-display text-sm font-semibold text-ink">
-                {rewardCopy}
-              </p>
-              <div className="mt-2">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-[10px] text-ink-muted">
-                    {ready
-                      ? "¡Listo para canjear!"
-                      : `${account.stamps} de ${account.threshold} sellos`}
-                  </span>
-                  <span className="text-[10px] font-semibold text-mustard-deep">
-                    {Math.round(progressPct)}%
-                  </span>
-                </div>
-                <div
-                  className="h-1.5 w-full overflow-hidden rounded-full"
-                  style={{ background: "var(--brand-cream)" }}
-                >
+          <p className="text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
+            Recompensas del club
+          </p>
+          {tierViews.length > 0 ? (
+            <ul className="mt-2.5 space-y-2.5">
+              {tierViews.map((t) => {
+                const reached = Math.min(account.stamps, t.stamps_required);
+                const pct = Math.round((reached / t.stamps_required) * 100);
+                return (
+                  <li key={t.stamps_required} className="flex items-center gap-3">
+                    <span
+                      className={`grid h-8 w-8 flex-none place-items-center rounded-full text-xs font-bold ${
+                        t.status === "redeemed"
+                          ? "bg-forest text-cream"
+                          : t.status === "available"
+                            ? "bg-mustard text-ink"
+                            : "bg-cream-muted text-ink-muted"
+                      }`}
+                    >
+                      {t.status === "redeemed" ? "✓" : t.stamps_required}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-display text-sm font-semibold text-ink">
+                        {t.reward_name}
+                      </p>
+                      <div
+                        className="mt-1 h-1.5 w-full overflow-hidden rounded-full"
+                        style={{ background: "var(--brand-cream)" }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${pct}%`,
+                            background:
+                              t.status === "redeemed"
+                                ? "var(--brand-forest)"
+                                : "var(--brand-mustard-deep)",
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span className="flex-none text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
+                      {t.status === "redeemed"
+                        ? "Canjeado"
+                        : t.status === "available"
+                          ? "¡Listo!"
+                          : `${t.stamps_required - account.stamps} más`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="mt-2 flex items-start gap-3">
+              <span className="text-2xl leading-none">🎁</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-display text-sm font-semibold text-ink">{rewardCopy}</p>
+                <div className="mt-2">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-[10px] text-ink-muted">
+                      {ready
+                        ? "¡Listo para canjear!"
+                        : `${account.stamps} de ${account.threshold} sellos`}
+                    </span>
+                    <span className="text-[10px] font-semibold text-mustard-deep">
+                      {Math.round(progressPct)}%
+                    </span>
+                  </div>
                   <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${progressPct}%`,
-                      background: "var(--brand-mustard-deep)",
-                    }}
-                  />
+                    className="h-1.5 w-full overflow-hidden rounded-full"
+                    style={{ background: "var(--brand-cream)" }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${progressPct}%`,
+                        background: "var(--brand-mustard-deep)",
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </section>
 

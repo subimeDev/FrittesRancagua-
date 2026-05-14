@@ -31,6 +31,7 @@ class CustomerResponse(BaseModel):
     redemptions: int
     tier: str
     member_since: datetime
+    redeemed_tiers: list[int] = []
 
 
 class DevLoginRequest(BaseModel):
@@ -51,10 +52,18 @@ class AccrueRequest(BaseModel):
     qr_token: str
 
 
+class RedeemRequest(BaseModel):
+    qr_token: str
+    # Which milestone to redeem (its stamps_required value). When omitted, the
+    # backend redeems the highest tier the customer currently qualifies for.
+    tier_stamps: int | None = None
+
+
 class TransactionResponse(BaseModel):
     kind: Literal["accrual", "redeem"]
     new_balance: int
     customer_name: str
+    reward_name: str | None = None
 
 
 class StaffLoginRequest(BaseModel):

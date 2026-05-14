@@ -1,15 +1,29 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, update as sql_update
+from sqlalchemy import delete as sql_delete, func, select, update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import api_error, get_current_staff, get_db, get_restaurant_id
 from app.loyalty import service
-from app.models import Customer, RestaurantConfig, StaffRole, StaffUser, Transaction, TransactionKind
+from app.loyalty.exceptions import (
+    InsufficientStampsError,
+    RewardTierNotFoundError,
+    TierAlreadyRedeemedError,
+)
+from app.models import (
+    Customer,
+    RestaurantConfig,
+    RewardTier,
+    StaffRole,
+    StaffUser,
+    Transaction,
+    TransactionKind,
+)
 from app.security import hash_password
 
 router = APIRouter(prefix="/loyalty/admin", tags=["admin"])
@@ -81,6 +95,7 @@ async def top_customers(
             "threshold": c.threshold,
             "lifetime_stamps": c.lifetime_stamps,
             "redemptions": c.redemptions,
+            "redeemed_tiers": list(c.redeemed_tiers or []),
             "has_coupon": c.stamps >= c.threshold,
             "member_since": c.member_since.isoformat(),
             "rank": i + 1,
@@ -132,6 +147,7 @@ async def list_customers(
                 "threshold": c.threshold,
                 "lifetime_stamps": c.lifetime_stamps,
                 "redemptions": c.redemptions,
+                "redeemed_tiers": list(c.redeemed_tiers or []),
                 "has_coupon": c.stamps >= c.threshold,
                 "member_since": c.member_since.isoformat(),
             }
@@ -144,10 +160,17 @@ async def list_customers(
 # Customer actions (manager only)
 # ---------------------------------------------------------------------------
 
+class ManualRedeemRequest(BaseModel):
+    # Which milestone to redeem (its stamps_required). Omit to redeem the highest
+    # tier the customer currently qualifies for.
+    tier_stamps: int | None = None
+
+
 @router.post("/customers/{customer_id}/redeem")
 async def manual_redeem(
     customer_id: str,
     background_tasks: BackgroundTasks,
+    payload: ManualRedeemRequest | None = None,
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
     manager: StaffUser = Depends(require_manager),
@@ -157,22 +180,24 @@ async def manual_redeem(
     )).scalar_one_or_none()
     if not customer:
         raise api_error(404, "not_found", "customer not found")
-    if customer.stamps < customer.threshold:
-        raise api_error(400, "insufficient_stamps", f"necesita {customer.threshold} sellos, tiene {customer.stamps}")
 
-    deducted = customer.threshold
-    customer.stamps -= deducted
-    customer.redemptions += 1
-    db.add(Transaction(
-        id=str(uuid4()),
-        customer_id=customer.id,
-        staff_user_id=manager.id,
-        kind=TransactionKind.REDEEM.value,
-        stamps_delta=-deducted,
-        qr_jti=f"admin_{uuid4().hex}",
-    ))
-    config = await db.get(RestaurantConfig, restaurant_id)
-    reward_name = config.reward_name if config else "Papas fritas gratis"
+    tier_stamps = payload.tier_stamps if payload else None
+    try:
+        reward_name = await service.apply_redemption(
+            db,
+            customer=customer,
+            staff_user_id=manager.id,
+            restaurant_id=restaurant_id,
+            tier_stamps=tier_stamps,
+            qr_jti=f"admin_{uuid4().hex}",
+        )
+    except InsufficientStampsError:
+        raise api_error(400, "insufficient_stamps", "El cliente no tiene suficientes sellos para este premio")
+    except TierAlreadyRedeemedError:
+        raise api_error(400, "tier_already_redeemed", "Ese premio ya fue canjeado en esta tarjeta")
+    except RewardTierNotFoundError:
+        raise api_error(404, "tier_not_found", "Nivel de recompensa no encontrado")
+
     customer_name = customer.name
     customer_phone = customer.phone
     await db.commit()
@@ -181,6 +206,7 @@ async def manual_redeem(
         "new_balance": customer.stamps,
         "redemptions": customer.redemptions,
         "customer_name": customer_name,
+        "reward_name": reward_name,
     }
 
 
@@ -270,14 +296,105 @@ async def get_config(
     restaurant_id: str = Depends(get_restaurant_id),
     _: StaffUser = Depends(get_current_staff),
 ) -> dict[str, object]:
+    tiers = await service.tiers_payload(db, restaurant_id)
     config = await db.get(RestaurantConfig, restaurant_id)
     if not config:
-        return {"threshold": 10, "reward_name": "Papas fritas gratis", "tier_name": "Maisonero"}
+        return {
+            "threshold": tiers[-1]["stamps_required"],
+            "reward_name": tiers[-1]["reward_name"],
+            "tier_name": "Maisonero",
+            "tiers": tiers,
+        }
     return {
         "threshold": config.threshold,
         "reward_name": config.reward_name,
         "tier_name": config.tier_name,
+        "tiers": tiers,
     }
+
+
+# ---------------------------------------------------------------------------
+# Reward tiers (milestones) — manager only to write
+# ---------------------------------------------------------------------------
+
+@router.get("/tiers")
+async def get_tiers(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(get_current_staff),
+) -> dict[str, object]:
+    return {"tiers": await service.tiers_payload(db, restaurant_id)}
+
+
+class TierInput(BaseModel):
+    stamps_required: int
+    reward_name: str
+
+
+class UpdateTiersRequest(BaseModel):
+    tiers: list[TierInput]
+
+
+@router.put("/tiers")
+async def update_tiers(
+    payload: UpdateTiersRequest,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    if not payload.tiers:
+        raise api_error(400, "invalid_input", "Debe haber al menos un nivel de recompensa")
+    if len(payload.tiers) > 10:
+        raise api_error(400, "invalid_input", "Máximo 10 niveles")
+
+    seen: set[int] = set()
+    cleaned: list[tuple[int, str]] = []
+    for tier in payload.tiers:
+        if not (1 <= tier.stamps_required <= 50):
+            raise api_error(400, "invalid_input", "Cada nivel debe estar entre 1 y 50 sellos")
+        if tier.stamps_required in seen:
+            raise api_error(400, "invalid_input", "No puede haber dos niveles con la misma cantidad de sellos")
+        seen.add(tier.stamps_required)
+        name = tier.reward_name.strip()
+        if not name:
+            raise api_error(400, "invalid_input", "Cada nivel necesita un nombre de premio")
+        cleaned.append((tier.stamps_required, name))
+    cleaned.sort()
+
+    now = datetime.now(timezone.utc)
+    await db.execute(sql_delete(RewardTier).where(RewardTier.restaurant_id == restaurant_id))
+    for stamps_required, name in cleaned:
+        db.add(RewardTier(
+            id=f"tier_{uuid4().hex[:12]}",
+            restaurant_id=restaurant_id,
+            stamps_required=stamps_required,
+            reward_name=name,
+            created_at=now,
+        ))
+
+    # The top milestone is the card size — keep config + customers in sync with it.
+    top_stamps, top_name = cleaned[-1]
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        config = RestaurantConfig(
+            restaurant_id=restaurant_id,
+            threshold=top_stamps,
+            reward_name=top_name,
+            tier_name="Maisonero",
+            updated_at=now,
+        )
+        db.add(config)
+    else:
+        config.threshold = top_stamps
+        config.reward_name = top_name
+    await db.execute(
+        sql_update(Customer)
+        .where(Customer.restaurant_id == restaurant_id)
+        .values(threshold=top_stamps)
+    )
+
+    await db.commit()
+    return {"tiers": [{"stamps_required": s, "reward_name": n} for s, n in cleaned]}
 
 
 class UpdateConfigRequest(BaseModel):
@@ -296,7 +413,6 @@ async def update_config(
     if payload.threshold is not None and not (1 <= payload.threshold <= 50):
         raise api_error(400, "invalid_input", "El umbral debe estar entre 1 y 50 sellos")
 
-    from datetime import datetime, timezone
     config = await db.get(RestaurantConfig, restaurant_id)
     if not config:
         config = RestaurantConfig(
@@ -334,6 +450,7 @@ async def update_config(
         "threshold": config.threshold,
         "reward_name": config.reward_name,
         "tier_name": config.tier_name,
+        "tiers": await service.tiers_payload(db, restaurant_id),
     }
 
 
