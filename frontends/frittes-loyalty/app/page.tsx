@@ -22,7 +22,7 @@ type ProgramConfig = {
   tier_name: string;
   tiers: RewardTier[];
 };
-type TierStatus = "redeemed" | "available" | "locked";
+type TierStatus = "available" | "locked";
 type TierView = RewardTier & { status: TierStatus };
 
 export default function HomePage(): JSX.Element {
@@ -98,20 +98,15 @@ export default function HomePage(): JSX.Element {
     : branding;
   const rewardCopy = effectiveBranding.rewardCopy;
 
-  const redeemedTiers = account.redeemed_tiers ?? [];
   const tierViews: TierView[] = (programConfig?.tiers ?? [])
     .slice()
     .sort((a, b) => a.stamps_required - b.stamps_required)
     .map((t) => ({
       ...t,
-      status: redeemedTiers.includes(t.stamps_required)
-        ? "redeemed"
-        : account.stamps >= t.stamps_required
-          ? "available"
-          : "locked",
+      status: account.stamps >= t.stamps_required ? "available" : "locked",
     }));
   const nextTier = tierViews.find((t) => t.status === "locked");
-  const availableCount = tierViews.filter((t) => t.status === "available").length;
+  const readyTiers = tierViews.filter((t) => t.status === "available");
 
   async function handleWallet(): Promise<void> {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -197,8 +192,8 @@ export default function HomePage(): JSX.Element {
           ¡Hola, {account.name.split(" ")[0]}!
         </p>
         <p className="mt-1 text-sm text-ink-muted">
-          {availableCount > 0
-            ? `Tienes ${availableCount} ${availableCount === 1 ? "premio listo" : "premios listos"} para canjear.`
+          {readyTiers.length > 0
+            ? `Tienes ${readyTiers.length} ${readyTiers.length === 1 ? "premio listo" : "premios listos"} para canjear.`
             : nextTier
               ? `Te faltan ${nextTier.stamps_required - account.stamps} sellos para ${nextTier.reward_name}.`
               : ready
@@ -249,18 +244,15 @@ export default function HomePage(): JSX.Element {
               {tierViews.map((t) => {
                 const reached = Math.min(account.stamps, t.stamps_required);
                 const pct = Math.round((reached / t.stamps_required) * 100);
+                const isReady = t.status === "available";
                 return (
                   <li key={t.stamps_required} className="flex items-center gap-3">
                     <span
                       className={`grid h-8 w-8 flex-none place-items-center rounded-full text-xs font-bold ${
-                        t.status === "redeemed"
-                          ? "bg-forest text-cream"
-                          : t.status === "available"
-                            ? "bg-mustard text-ink"
-                            : "bg-cream-muted text-ink-muted"
+                        isReady ? "bg-mustard text-ink" : "bg-cream-muted text-ink-muted"
                       }`}
                     >
-                      {t.status === "redeemed" ? "✓" : t.stamps_required}
+                      {isReady ? "🎟️" : t.stamps_required}
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-display text-sm font-semibold text-ink">
@@ -274,20 +266,17 @@ export default function HomePage(): JSX.Element {
                           className="h-full rounded-full transition-all duration-500"
                           style={{
                             width: `${pct}%`,
-                            background:
-                              t.status === "redeemed"
-                                ? "var(--brand-forest)"
-                                : "var(--brand-mustard-deep)",
+                            background: "var(--brand-mustard-deep)",
                           }}
                         />
                       </div>
                     </div>
-                    <span className="flex-none text-[10px] font-semibold uppercase tracking-wider2 text-ink-muted">
-                      {t.status === "redeemed"
-                        ? "Canjeado"
-                        : t.status === "available"
-                          ? "¡Listo!"
-                          : `${t.stamps_required - account.stamps} más`}
+                    <span
+                      className={`flex-none text-[10px] font-semibold uppercase tracking-wider2 ${
+                        isReady ? "text-mustard-deep" : "text-ink-muted"
+                      }`}
+                    >
+                      {isReady ? "¡Listo!" : `${t.stamps_required - account.stamps} más`}
                     </span>
                   </li>
                 );

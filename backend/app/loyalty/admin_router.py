@@ -10,11 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import api_error, get_current_staff, get_db, get_restaurant_id
 from app.loyalty import service
-from app.loyalty.exceptions import (
-    InsufficientStampsError,
-    RewardTierNotFoundError,
-    TierAlreadyRedeemedError,
-)
+from app.loyalty.exceptions import InsufficientStampsError, RewardTierNotFoundError
 from app.models import (
     Customer,
     RestaurantConfig,
@@ -57,9 +53,11 @@ async def get_stats(
         select(func.coalesce(func.sum(Customer.redemptions), 0))
         .where(Customer.restaurant_id == restaurant_id)
     )).scalar_one()
+    # A customer "has a coupon" once they can afford the cheapest reward tier.
+    min_tier_stamps = (await service.resolve_tiers(db, restaurant_id))[0][0]
     customers_with_coupon = (await db.execute(
         select(func.count()).select_from(Customer)
-        .where(Customer.restaurant_id == restaurant_id, Customer.stamps >= Customer.threshold)
+        .where(Customer.restaurant_id == restaurant_id, Customer.stamps >= min_tier_stamps)
     )).scalar_one()
     return {
         "total_customers": total_customers,
@@ -80,6 +78,7 @@ async def top_customers(
     _: StaffUser = Depends(get_current_staff),
     limit: int = Query(default=20, ge=1, le=50),
 ) -> list[dict[str, object]]:
+    min_tier_stamps = (await service.resolve_tiers(db, restaurant_id))[0][0]
     rows = (await db.execute(
         select(Customer)
         .where(Customer.restaurant_id == restaurant_id)
@@ -95,8 +94,7 @@ async def top_customers(
             "threshold": c.threshold,
             "lifetime_stamps": c.lifetime_stamps,
             "redemptions": c.redemptions,
-            "redeemed_tiers": list(c.redeemed_tiers or []),
-            "has_coupon": c.stamps >= c.threshold,
+            "has_coupon": c.stamps >= min_tier_stamps,
             "member_since": c.member_since.isoformat(),
             "rank": i + 1,
         }
@@ -118,9 +116,10 @@ async def list_customers(
     with_coupon: bool = Query(default=False),
     search: str | None = Query(default=None),
 ) -> dict[str, object]:
+    min_tier_stamps = (await service.resolve_tiers(db, restaurant_id))[0][0]
     base_filter = [Customer.restaurant_id == restaurant_id]
     if with_coupon:
-        base_filter.append(Customer.stamps >= Customer.threshold)
+        base_filter.append(Customer.stamps >= min_tier_stamps)
     if search:
         like = f"%{search.strip().lower()}%"
         base_filter.append(
@@ -147,8 +146,7 @@ async def list_customers(
                 "threshold": c.threshold,
                 "lifetime_stamps": c.lifetime_stamps,
                 "redemptions": c.redemptions,
-                "redeemed_tiers": list(c.redeemed_tiers or []),
-                "has_coupon": c.stamps >= c.threshold,
+                "has_coupon": c.stamps >= min_tier_stamps,
                 "member_since": c.member_since.isoformat(),
             }
             for c in rows
@@ -193,8 +191,6 @@ async def manual_redeem(
         )
     except InsufficientStampsError:
         raise api_error(400, "insufficient_stamps", "El cliente no tiene suficientes sellos para este premio")
-    except TierAlreadyRedeemedError:
-        raise api_error(400, "tier_already_redeemed", "Ese premio ya fue canjeado en esta tarjeta")
     except RewardTierNotFoundError:
         raise api_error(404, "tier_not_found", "Nivel de recompensa no encontrado")
 

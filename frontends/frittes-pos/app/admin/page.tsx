@@ -24,7 +24,6 @@ type CustomerRow = {
   threshold: number;
   lifetime_stamps: number;
   redemptions: number;
-  redeemed_tiers: number[];
   has_coupon: boolean;
   member_since: string;
 };
@@ -534,11 +533,7 @@ function CustomersTab({
               const isActing = actionLoading === c.id || actionLoading === `${c.id}_adj`;
               const msg = actionMsg?.id === c.id ? actionMsg : null;
               const pct = Math.min(100, Math.round((c.stamps / c.threshold) * 100));
-              const availableTiers = tiers.filter(
-                (t) =>
-                  c.stamps >= t.stamps_required &&
-                  !(c.redeemed_tiers ?? []).includes(t.stamps_required),
-              );
+              const availableTiers = tiers.filter((t) => c.stamps >= t.stamps_required);
 
               return (
                 <li key={c.id}>

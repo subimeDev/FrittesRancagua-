@@ -11,7 +11,6 @@ import type { FrittesBranding } from "@/lib/branding";
 type WalletPassTier = {
   stamps_required: number;
   reward_name: string;
-  status: "redeemed" | "available" | "locked";
 };
 
 type WalletPassProps = {
@@ -55,8 +54,20 @@ export function WalletPass({
     [account.member_since, branding.currency.locale],
   );
   const cardNumber = account.id.replace("frt_", "").toUpperCase().padStart(6, "0");
-  const ready = account.stamps >= account.threshold;
-  const progressPct = Math.min((account.stamps / account.threshold) * 100, 100);
+
+  const sortedTiers = useMemo(
+    () => [...tiers].sort((a, b) => a.stamps_required - b.stamps_required),
+    [tiers],
+  );
+  // Premio más cercano que el cliente aún no alcanza — es la meta visible del pase.
+  const nextTier = sortedTiers.find((t) => account.stamps < t.stamps_required);
+  // Premios que el cliente ya puede canjear ahora.
+  const readyTiers = sortedTiers.filter((t) => account.stamps >= t.stamps_required);
+  const hasReward = readyTiers.length > 0;
+  const goal = nextTier?.stamps_required ?? account.threshold;
+  const goalName = nextTier?.reward_name ?? branding.rewardCopy;
+  const progressPct = Math.min((account.stamps / goal) * 100, 100);
+  const ready = hasReward;
 
   useEffect(() => {
     if (ready && !confettiFired.current) {
@@ -159,30 +170,28 @@ export function WalletPass({
                   </p>
                   <p className="mt-0.5 flex items-baseline gap-1.5 font-display tracking-tight text-ink">
                     <span className="text-5xl font-bold tabular-nums">{account.stamps}</span>
-                    <span className="text-base font-medium text-ink-muted">
-                      / {account.threshold}
-                    </span>
+                    <span className="text-base font-medium text-ink-muted">/ {goal}</span>
                   </p>
                 </div>
-                {ready ? (
-                  <span className="rounded-full bg-forest px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider2 text-cream">
-                    Listo!
+                {nextTier ? (
+                  <span className="text-right text-[11px] font-medium text-ink-muted">
+                    faltan {goal - account.stamps}
+                    <br />
+                    para {goalName}
                   </span>
                 ) : (
-                  <span className="text-right text-[11px] font-medium text-ink-muted">
-                    faltan {account.threshold - account.stamps}
-                    <br />
-                    para {branding.rewardCopy}
+                  <span className="rounded-full bg-forest px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider2 text-cream">
+                    ¡Todo listo!
                   </span>
                 )}
               </div>
 
-              {/* Barra de progreso */}
+              {/* Barra de progreso hacia el premio más cercano */}
               <div className="mt-3">
                 <p className="mb-1.5 text-[9px] font-medium uppercase tracking-wider2 text-ink-muted">
-                  {ready
-                    ? "¡Listo para canjear!"
-                    : `${account.threshold - account.stamps} mas para ${branding.rewardCopy}`}
+                  {nextTier
+                    ? `${goal - account.stamps} mas para ${goalName}`
+                    : "Todas las recompensas disponibles"}
                 </p>
                 <div
                   className="h-1.5 w-full overflow-hidden rounded-full"
@@ -198,6 +207,26 @@ export function WalletPass({
                 </div>
               </div>
             </div>
+
+            {/* Ticket — premio(s) listo(s) para canjear en caja */}
+            {hasReward && (
+              <div className="mt-4 flex items-center gap-3 rounded-xl border border-dashed border-mustard-deep bg-mustard/20 px-3 py-2.5">
+                <span className="text-2xl leading-none">🎟️</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider2 text-mustard-deep">
+                    {readyTiers.length === 1
+                      ? "Premio para canjear"
+                      : `${readyTiers.length} premios para canjear`}
+                  </p>
+                  <p className="truncate font-display text-sm font-semibold text-ink">
+                    {readyTiers.map((t) => t.reward_name).join(" · ")}
+                  </p>
+                  <p className="mt-0.5 text-[9px] text-ink-muted">
+                    Muestra este pase en caja
+                  </p>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* Strip QR */}

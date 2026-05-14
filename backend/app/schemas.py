@@ -31,7 +31,6 @@ class CustomerResponse(BaseModel):
     redemptions: int
     tier: str
     member_since: datetime
-    redeemed_tiers: list[int] = []
 
 
 class DevLoginRequest(BaseModel):

@@ -129,8 +129,6 @@ export type LoyaltyCustomerDto = {
   redemptions: number;
   tier: string;
   member_since: string;
-  /** stamps_required of the milestones already claimed in the current card cycle. */
-  redeemed_tiers?: number[];
 };
 
 export type ProgramConfigDto = {

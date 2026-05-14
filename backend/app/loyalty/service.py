@@ -13,7 +13,6 @@ from app.loyalty.exceptions import (
     InsufficientStampsError,
     QrTokenAlreadyUsedError,
     RewardTierNotFoundError,
-    TierAlreadyRedeemedError,
 )
 from app.models import (
     Customer,
@@ -49,7 +48,6 @@ def customer_to_response(customer: Customer) -> CustomerResponse:
         redemptions=customer.redemptions,
         tier=customer.tier,
         member_since=customer.member_since,
-        redeemed_tiers=list(customer.redeemed_tiers or []),
     )
 
 
@@ -93,19 +91,18 @@ async def apply_redemption(
 ) -> str:
     """Redeem one reward milestone for `customer` and record the transaction.
 
-    Single-card-with-milestones model: claiming a non-top tier just marks it as
-    redeemed for the current cycle (stamps untouched); claiming the top tier
-    resets the card to 0. Returns the redeemed reward's name."""
+    Redeeming a tier deducts its `stamps_required` from the customer's balance.
+    When `tier_stamps` is omitted, the highest tier the customer can currently
+    afford is redeemed. Returns the redeemed reward's name."""
     tiers = await resolve_tiers(db, restaurant_id)
     if not tiers:
         raise InsufficientStampsError("not enough stamps")
-    redeemed = set(customer.redeemed_tiers or [])
 
     if tier_stamps is None:
-        available = [(req, name) for req, name in tiers if customer.stamps >= req and req not in redeemed]
-        if not available:
+        affordable = [(req, name) for req, name in tiers if customer.stamps >= req]
+        if not affordable:
             raise InsufficientStampsError("not enough stamps")
-        target_req, target_name = available[-1]
+        target_req, target_name = affordable[-1]
     else:
         match = next(((req, name) for req, name in tiers if req == tier_stamps), None)
         if match is None:
@@ -113,17 +110,8 @@ async def apply_redemption(
         target_req, target_name = match
         if customer.stamps < target_req:
             raise InsufficientStampsError("not enough stamps")
-        if target_req in redeemed:
-            raise TierAlreadyRedeemedError("tier already redeemed")
 
-    top_req = tiers[-1][0]
-    if target_req == top_req:
-        stamps_delta = -customer.stamps
-        customer.stamps = 0
-        customer.redeemed_tiers = []
-    else:
-        stamps_delta = 0
-        customer.redeemed_tiers = sorted(redeemed | {target_req})
+    customer.stamps -= target_req
     customer.redemptions += 1
 
     db.add(
@@ -132,7 +120,7 @@ async def apply_redemption(
             customer_id=customer.id,
             staff_user_id=staff_user_id,
             kind=TransactionKind.REDEEM.value,
-            stamps_delta=stamps_delta,
+            stamps_delta=-target_req,
             qr_jti=qr_jti,
         )
     )

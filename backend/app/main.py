@@ -15,7 +15,6 @@ from app.loyalty.exceptions import (
     QrTokenExpiredError,
     QrTokenInvalidError,
     RewardTierNotFoundError,
-    TierAlreadyRedeemedError,
 )
 from app.loyalty.admin_router import router as admin_router
 from app.loyalty.router import router as loyalty_router
@@ -52,14 +51,6 @@ async def qr_replayed_handler(_: Request, exc: QrTokenAlreadyUsedError) -> JSONR
 @app.exception_handler(InsufficientStampsError)
 async def insufficient_stamps_handler(_: Request, exc: InsufficientStampsError) -> JSONResponse:
     return JSONResponse(status_code=400, content={"code": "insufficient_stamps", "message": "not enough stamps"})
-
-
-@app.exception_handler(TierAlreadyRedeemedError)
-async def tier_already_redeemed_handler(_: Request, exc: TierAlreadyRedeemedError) -> JSONResponse:
-    return JSONResponse(
-        status_code=400,
-        content={"code": "tier_already_redeemed", "message": "reward tier already redeemed this cycle"},
-    )
 
 
 @app.exception_handler(RewardTierNotFoundError)
