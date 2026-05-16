@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from uuid import uuid4
+import hashlib
 
 from sqlalchemy import select
 
@@ -17,6 +17,12 @@ SEED_USERS = [
 ]
 
 
+def _seed_id(restaurant_id: str, email: str) -> str:
+    """Deterministic ID so existing JWTs survive a DB reset + re-seed."""
+    digest = hashlib.sha256(f"{restaurant_id}:{email}".encode()).hexdigest()[:12]
+    return f"stf_{digest}"
+
+
 async def main() -> None:
     settings = get_settings()
     async with SessionLocal() as session:
@@ -30,7 +36,7 @@ async def main() -> None:
                 print(f"Seed already exists: {u['email']}")
                 continue
             user = StaffUser(
-                id=f"stf_{uuid4().hex[:12]}",
+                id=_seed_id(settings.restaurant_id, u["email"]),
                 restaurant_id=settings.restaurant_id,
                 email=u["email"],
                 password_hash=hash_password(u["password"]),

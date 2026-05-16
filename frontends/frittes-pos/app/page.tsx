@@ -22,6 +22,7 @@ export default function PosHomePage(): JSX.Element {
   const [result, setResult] = useState<TransactionResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [isSessionError, setIsSessionError] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -158,6 +159,13 @@ export default function PosHomePage(): JSX.Element {
     router.push("/login");
   }
 
+  function handleSessionExpired(): void {
+    stopCamera();
+    setIsSessionError(true);
+    setErrorMsg("Se realizaron cambios en el sistema. Cierra sesión y vuelve a entrar para continuar.");
+    setUiState("error");
+  }
+
   function handleApiError(err: unknown, fallback: string): string {
     if (!(err instanceof ApiError)) return fallback;
     if (err.status === 401) return "Sesión expirada. Vuelve a iniciar sesión.";
@@ -177,7 +185,7 @@ export default function PosHomePage(): JSX.Element {
       setUiState("confirmation");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        handleSignOut();
+        handleSessionExpired();
         return;
       }
       setErrorMsg(handleApiError(err, "Error al sumar sello."));
@@ -196,7 +204,7 @@ export default function PosHomePage(): JSX.Element {
       setUiState("confirmation");
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        handleSignOut();
+        handleSessionExpired();
         return;
       }
       setErrorMsg(handleApiError(err, "Error al canjear premio."));
@@ -440,13 +448,23 @@ export default function PosHomePage(): JSX.Element {
             <span className="text-3xl">✕</span>
           </div>
           <p className="text-lg font-semibold text-red-700">{errorMsg}</p>
-          <button
-            type="button"
-            className="rounded-xl bg-ink px-8 py-3 font-semibold text-white"
-            onClick={() => setUiState("dashboard")}
-          >
-            Volver al panel
-          </button>
+          {isSessionError ? (
+            <button
+              type="button"
+              className="rounded-xl bg-ink px-8 py-3 font-semibold text-white"
+              onClick={handleSignOut}
+            >
+              Cerrar sesión
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rounded-xl bg-ink px-8 py-3 font-semibold text-white"
+              onClick={() => setUiState("dashboard")}
+            >
+              Volver al panel
+            </button>
+          )}
         </section>
       ) : null}
     </main>

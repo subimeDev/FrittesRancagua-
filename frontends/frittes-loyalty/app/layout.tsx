@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Bodoni_Moda, Caveat, Plus_Jakarta_Sans } from "next/font/google";
 import Script from "next/script";
 
+import { PwaRegister } from "@/components/pwa-register";
 import { ToastProvider } from "@/components/toast";
 import { branding, brandingToCssVars } from "@/lib/branding";
 
@@ -69,6 +70,7 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
             src="https://plausible.io/js/script.js"
           />
         ) : null}
+        <PwaRegister />
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

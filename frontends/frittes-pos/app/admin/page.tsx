@@ -174,6 +174,12 @@ function AdminPageInner(): JSX.Element {
 
   const isManager = staff?.role === "manager";
 
+  const [sessionError, setSessionError] = useState(false);
+
+  const handleUnauthorized = useCallback(() => {
+    setSessionError(true);
+  }, []);
+
   useEffect(() => {
     const t = localStorage.getItem("frittes-pos:session");
     const s = JSON.parse(localStorage.getItem("frittes-pos:staff") ?? "null") as Staff | null;
@@ -232,6 +238,26 @@ function AdminPageInner(): JSX.Element {
         </button>
       </header>
 
+      {/* Banner de sesión expirada */}
+      {sessionError && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-800">
+            Se realizaron cambios en el sistema. Cierra sesión y vuelve a entrar para continuar.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.removeItem("frittes-pos:session");
+              localStorage.removeItem("frittes-pos:staff");
+              router.push("/login");
+            }}
+            className="flex-none rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      )}
+
       {/* Tabs – scrollable on mobile */}
       <nav className="mb-5 flex gap-1 overflow-x-auto rounded-xl bg-cream-muted p-1 scrollbar-none">
         {visibleTabs.map(({ key, label }) => (
@@ -248,25 +274,26 @@ function AdminPageInner(): JSX.Element {
         ))}
       </nav>
 
-      {tab === "stats" && <StatsTab token={token} />}
-      {tab === "top" && <TopTab token={token} />}
+      {tab === "stats" && <StatsTab token={token} onUnauthorized={handleUnauthorized} />}
+      {tab === "top" && <TopTab token={token} onUnauthorized={handleUnauthorized} />}
       {tab === "customers" && (
         <CustomersTab
           token={token}
           isManager={isManager}
           initialWithCoupon={searchParams.get("with_coupon") === "1"}
+          onUnauthorized={handleUnauthorized}
         />
       )}
-      {tab === "transactions" && <TransactionsTab token={token} />}
-      {tab === "config" && isManager && <ConfigTab token={token} />}
-      {tab === "staff" && isManager && <StaffTab token={token} currentStaffId={staff.id} />}
+      {tab === "transactions" && <TransactionsTab token={token} onUnauthorized={handleUnauthorized} />}
+      {tab === "config" && isManager && <ConfigTab token={token} onUnauthorized={handleUnauthorized} />}
+      {tab === "staff" && isManager && <StaffTab token={token} currentStaffId={staff.id} onUnauthorized={handleUnauthorized} />}
     </main>
   );
 }
 
 // ─── Stats Tab ────────────────────────────────────────────────────────────────
 
-function StatsTab({ token }: { token: string }): JSX.Element {
+function StatsTab({ token, onUnauthorized }: { token: string; onUnauthorized: () => void }): JSX.Element {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -276,10 +303,11 @@ function StatsTab({ token }: { token: string }): JSX.Element {
     adminRequest<AdminStats>("/loyalty/admin/stats", token)
       .then(setStats)
       .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
         setError(err instanceof ApiError ? err.message || "No se pudo cargar el resumen" : "Error");
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, onUnauthorized]);
 
   if (loading) return <TabLoading />;
   if (error) return <TabError message={error} />;
@@ -323,7 +351,7 @@ function StatCard({
 
 const MEDALS: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
 
-function TopTab({ token }: { token: string }): JSX.Element {
+function TopTab({ token, onUnauthorized }: { token: string; onUnauthorized: () => void }): JSX.Element {
   const [tops, setTops] = useState<TopCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -332,10 +360,11 @@ function TopTab({ token }: { token: string }): JSX.Element {
     adminRequest<TopCustomer[]>("/loyalty/admin/top-customers?limit=20", token)
       .then(setTops)
       .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
         setError(err instanceof ApiError ? err.message : "No se pudo cargar el ranking");
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, onUnauthorized]);
 
   if (loading) return <TabLoading />;
   if (error) return <TabError message={error} />;
@@ -431,10 +460,12 @@ function CustomersTab({
   token,
   isManager,
   initialWithCoupon,
+  onUnauthorized,
 }: {
   token: string;
   isManager: boolean;
   initialWithCoupon: boolean;
+  onUnauthorized: () => void;
 }): JSX.Element {
   const [withCoupon, setWithCoupon] = useState(initialWithCoupon);
   const [search, setSearch] = useState("");
@@ -450,8 +481,11 @@ function CustomersTab({
   useEffect(() => {
     adminRequest<{ tiers: RewardTier[] }>("/loyalty/admin/tiers", token)
       .then((data) => setTiers([...data.tiers].sort((a, b) => a.stamps_required - b.stamps_required)))
-      .catch(() => setTiers([]));
-  }, [token]);
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
+        setTiers([]);
+      });
+  }, [token, onUnauthorized]);
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
@@ -468,9 +502,12 @@ function CustomersTab({
       token,
     )
       .then((data) => { setCustomers(data.items); setTotal(data.total); })
-      .catch(() => { setCustomers([]); setTotal(0); })
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
+        setCustomers([]); setTotal(0);
+      })
       .finally(() => setLoading(false));
-  }, [token, withCoupon, debouncedSearch]);
+  }, [token, withCoupon, debouncedSearch, onUnauthorized]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -490,6 +527,7 @@ function CustomersTab({
       });
       load();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
       const msg = err instanceof ApiError ? err.message : "Error al canjear";
       setActionMsg({ id: c.id, text: msg, ok: false });
     } finally {
@@ -508,6 +546,7 @@ function CustomersTab({
       setActionMsg({ id: c.id, text: `Saldo actualizado → ${res.new_balance} sellos`, ok: true });
       load();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
       const msg = err instanceof ApiError ? err.message : "Error al ajustar";
       setActionMsg({ id: c.id, text: msg, ok: false });
     } finally {
@@ -672,7 +711,7 @@ function CustomersTab({
 
 // ─── Transactions Tab ─────────────────────────────────────────────────────────
 
-function TransactionsTab({ token }: { token: string }): JSX.Element {
+function TransactionsTab({ token, onUnauthorized }: { token: string; onUnauthorized: () => void }): JSX.Element {
   const [transactions, setTransactions] = useState<TxRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -681,10 +720,11 @@ function TransactionsTab({ token }: { token: string }): JSX.Element {
     adminRequest<TxRow[]>("/loyalty/admin/transactions?limit=60", token)
       .then(setTransactions)
       .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
         setError(err instanceof ApiError ? err.message : "No se pudieron cargar los movimientos");
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, onUnauthorized]);
 
   if (loading) return <TabLoading />;
   if (error) return <TabError message={error} />;
@@ -738,7 +778,7 @@ function TransactionsTab({ token }: { token: string }): JSX.Element {
 
 // ─── Config Tab ───────────────────────────────────────────────────────────────
 
-function ConfigTab({ token }: { token: string }): JSX.Element {
+function ConfigTab({ token, onUnauthorized }: { token: string; onUnauthorized: () => void }): JSX.Element {
   const [tiers, setTiers] = useState<RewardTier[]>([]);
   const [savedTiers, setSavedTiers] = useState<RewardTier[]>([]);
   const [tierName, setTierName] = useState("Maisonero");
@@ -770,9 +810,11 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
         setLevelLabel(label);
         setSavedLevelLabel(label);
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); }
+      })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, onUnauthorized]);
 
   function updateTier(index: number, patch: Partial<RewardTier>): void {
     setTiers((prev) => prev.map((t, i) => (i === index ? { ...t, ...patch } : t)));
@@ -888,6 +930,7 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
       setError(err instanceof ApiError ? err.message : "No se pudo guardar");
     } finally {
       setSaving(false);
@@ -1131,9 +1174,11 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
 function StaffTab({
   token,
   currentStaffId,
+  onUnauthorized,
 }: {
   token: string;
   currentStaffId: string;
+  onUnauthorized: () => void;
 }): JSX.Element {
   const [staffList, setStaffList] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1146,10 +1191,11 @@ function StaffTab({
     adminRequest<StaffRow[]>("/loyalty/admin/staff", token)
       .then(setStaffList)
       .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
         setError(err instanceof ApiError ? err.message : "No se pudo cargar el equipo");
       })
       .finally(() => setLoading(false));
-  }, [token]);
+  }, [token, onUnauthorized]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -1161,6 +1207,8 @@ function StaffTab({
         body: { is_active: !s.is_active },
       });
       refresh();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
     } finally {
       setToggling(null);
     }
@@ -1226,6 +1274,7 @@ function StaffTab({
           token={token}
           onClose={() => setShowForm(false)}
           onCreated={() => { setShowForm(false); refresh(); }}
+          onUnauthorized={onUnauthorized}
         />
       )}
     </section>
@@ -1238,10 +1287,12 @@ function CreateStaffModal({
   token,
   onClose,
   onCreated,
+  onUnauthorized,
 }: {
   token: string;
   onClose: () => void;
   onCreated: () => void;
+  onUnauthorized: () => void;
 }): JSX.Element {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -1262,6 +1313,7 @@ function CreateStaffModal({
       });
       onCreated();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) { onUnauthorized(); return; }
       setError(
         err instanceof ApiError
           ? err.code === "duplicate_email"
