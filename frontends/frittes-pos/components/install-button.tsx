@@ -7,16 +7,25 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+// Capturar antes de que React hidrate para no perder el evento
+let _deferred: BeforeInstallPromptEvent | null = null;
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    _deferred = e as BeforeInstallPromptEvent;
+    window.dispatchEvent(new CustomEvent("pwa-installable"));
+  });
+}
+
 export function InstallButton(): JSX.Element | null {
-  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
+  const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(_deferred);
 
   useEffect(() => {
-    const handler = (event: Event): void => {
-      event.preventDefault();
-      setDeferred(event as BeforeInstallPromptEvent);
-    };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    if (_deferred) setDeferred(_deferred);
+    const onInstallable = (): void => { setDeferred(_deferred); };
+    window.addEventListener("pwa-installable", onInstallable);
+    return () => window.removeEventListener("pwa-installable", onInstallable);
   }, []);
 
   if (!deferred) return null;
@@ -26,25 +35,23 @@ export function InstallButton(): JSX.Element | null {
       type="button"
       onClick={() => {
         void deferred.prompt();
-        void deferred.userChoice.then(() => setDeferred(null));
+        void deferred.userChoice.then(() => {
+          _deferred = null;
+          setDeferred(null);
+        });
       }}
-      className="flex w-full items-center justify-center gap-2 rounded-2xl border border-line bg-white px-5 py-3 text-sm font-semibold text-ink shadow-sm transition active:scale-[0.98]"
+      className="group flex w-full items-center gap-4 overflow-hidden rounded-2xl bg-ink px-6 py-4 text-left text-white shadow-card transition active:scale-[0.98]"
     >
-      <svg
-        aria-hidden
-        className="h-4 w-4 flex-none text-black/40"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M12 17V3" />
-        <path d="m6 11 6 6 6-6" />
-        <path d="M19 21H5" />
-      </svg>
-      Instalar app
+      <span className="grid h-11 w-11 flex-none place-items-center rounded-xl bg-mustard text-2xl text-ink">
+        ↓
+      </span>
+      <div className="flex-1">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-white/50">
+          Acceso rápido
+        </p>
+        <p className="text-base font-bold text-white">Instalar app</p>
+      </div>
+      <span className="text-xl text-white/30 transition-transform group-active:translate-x-1">›</span>
     </button>
   );
 }
