@@ -123,9 +123,7 @@ export default function HomePage(): JSX.Element {
         customerId={account.id}
         customerName={account.name}
         readyTiers={celebrationTiers}
-        currentLevelNumber={account.current_level?.number ?? 0}
-        currentLevelName={account.current_level?.name ?? ""}
-        levelLabel={programConfig?.level_label ?? account.level_label ?? "Nivel"}
+        allTiers={programConfig?.tiers ?? []}
       />
       {!isOnline ? (
         <div className="mb-4 rounded-lg border border-line bg-cream-muted px-3 py-2 text-xs text-ink-muted">

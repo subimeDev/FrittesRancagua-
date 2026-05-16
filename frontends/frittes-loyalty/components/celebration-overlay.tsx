@@ -2,22 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 
-// ─── Persistencia local ────────────────────────────────────────────────────
+// ─── Persistencia ─────────────────────────────────────────────────────────
 
 const REWARDS_KEY = "frittes-celebrated";
-const LEVEL_KEY   = "frittes-level-seen";
+const CAT_COUNT_KEY = "frittes-cat-count";
 
 type Tier = { stamps_required: number; reward_name: string };
-
-function getLastSeenLevel(customerId: string): number {
-  try {
-    return parseInt(localStorage.getItem(`${LEVEL_KEY}:${customerId}`) ?? "0", 10) || 0;
-  } catch { return 0; }
-}
-
-function saveSeenLevel(customerId: string, level: number): void {
-  try { localStorage.setItem(`${LEVEL_KEY}:${customerId}`, String(level)); } catch {}
-}
 
 function getNewRewards(customerId: string, tiers: Tier[]): Tier[] {
   try {
@@ -36,11 +26,28 @@ function markCelebrated(customerId: string, tiers: Tier[]): void {
   } catch {}
 }
 
-// ─── Imagen de gato por nivel ─────────────────────────────────────────────
+// ─── Qué gato mostrar ──────────────────────────────────────────────────────
+// Si hay tiers configurados: índice del primer premio nuevo (1-4).
+// Si no hay tiers (modelo de umbral único): contador por cliente (cicla 1-4).
 
-function catSrc(levelNumber: number): string {
-  const n = Math.min(Math.max(levelNumber, 1), 4);
-  return `/level-cat-${n}.jpg`;
+function computeCatLevel(customerId: string, newRewards: Tier[], allTiers: Tier[]): number {
+  if (allTiers.length > 0 && newRewards.length > 0) {
+    const sorted = [...allTiers].sort((a, b) => a.stamps_required - b.stamps_required);
+    const idx = sorted.findIndex((t) => t.stamps_required === newRewards[0].stamps_required);
+    return Math.min(Math.max(idx + 1, 1), 4);
+  }
+  // modelo umbral único: cicla entre 1 y 4 según veces que ya celebró
+  try {
+    const n = parseInt(localStorage.getItem(`${CAT_COUNT_KEY}:${customerId}`) ?? "0", 10) || 0;
+    return (n % 4) + 1;
+  } catch { return 1; }
+}
+
+function incrementCatCount(customerId: string): void {
+  try {
+    const n = parseInt(localStorage.getItem(`${CAT_COUNT_KEY}:${customerId}`) ?? "0", 10) || 0;
+    localStorage.setItem(`${CAT_COUNT_KEY}:${customerId}`, String(n + 1));
+  } catch {}
 }
 
 // ─── Confetti ──────────────────────────────────────────────────────────────
@@ -62,23 +69,20 @@ const CONFETTI: Array<{ color: string; x: number; delay: number; w: number; h: n
   { color: "#1A1815", x: 83, delay: 0.43, w: 10, h: 7  },
 ];
 
-// ─── Tipos ─────────────────────────────────────────────────────────────────
+// ─── Props ─────────────────────────────────────────────────────────────────
 
 type Props = {
   customerId: string;
   customerName: string;
+  /** Premios recién alcanzados (sin canjear aún). */
   readyTiers: Tier[];
-  currentLevelNumber?: number;
-  currentLevelName?: string;
-  levelLabel?: string;
+  /** Todos los tiers del programa, para calcular el número de nivel del gato. */
+  allTiers: Tier[];
 };
 
 type ShowState = {
   newRewards: Tier[];
-  isNewLevel: boolean;
-  levelNumber: number;
-  levelName: string;
-  levelLabel: string;
+  catLevel: number;
 };
 
 // ─── Componente ────────────────────────────────────────────────────────────
@@ -87,58 +91,48 @@ export function CelebrationOverlay({
   customerId,
   customerName,
   readyTiers,
-  currentLevelNumber = 1,
-  currentLevelName = "",
-  levelLabel = "Nivel",
+  allTiers,
 }: Props): JSX.Element | null {
   const [show, setShow] = useState<ShowState | null>(null);
   const [entered, setEntered] = useState(false);
   const checked = useRef(false);
 
   useEffect(() => {
-    if (checked.current) return;
-
-    const lastLevel  = getLastSeenLevel(customerId);
-    const isNewLevel = currentLevelNumber > lastLevel && currentLevelNumber > 0;
-    const newRewards = getNewRewards(customerId, readyTiers);
-
-    if (!isNewLevel && newRewards.length === 0) return;
+    if (checked.current || readyTiers.length === 0) return;
     checked.current = true;
 
-    setShow({
-      newRewards,
-      isNewLevel,
-      levelNumber: currentLevelNumber,
-      levelName:   currentLevelName,
-      levelLabel,
-    });
+    const newRewards = getNewRewards(customerId, readyTiers);
+    if (newRewards.length === 0) return;
+
+    const catLevel = computeCatLevel(customerId, newRewards, allTiers);
+    setShow({ newRewards, catLevel });
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
-  }, [customerId, readyTiers, currentLevelNumber, currentLevelName, levelLabel]);
+  }, [customerId, readyTiers, allTiers]);
 
   if (!show) return null;
 
   const firstName = customerName.split(" ")[0];
 
   function dismiss(): void {
-    if (show!.isNewLevel) saveSeenLevel(customerId, show!.levelNumber);
     markCelebrated(customerId, show!.newRewards);
+    // Si no hay tiers configurados, avanzar el contador para el próximo ciclo
+    if (allTiers.length === 0) incrementCatCount(customerId);
     setEntered(false);
     setTimeout(() => setShow(null), 440);
   }
 
-  const { newRewards, isNewLevel, levelNumber, levelName, levelLabel: lLabel } = show;
-  const hasRewards = newRewards.length > 0;
+  const { newRewards, catLevel } = show;
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={isNewLevel ? `¡Obtuviste el ${lLabel} ${levelNumber}!` : "Premio disponible"}
+      aria-label="¡Premio disponible!"
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
       style={{
         backgroundColor: entered ? "rgba(26,24,21,0.72)" : "rgba(26,24,21,0)",
-        backdropFilter:        entered ? "blur(10px)" : "blur(0px)",
-        WebkitBackdropFilter:  entered ? "blur(10px)" : "blur(0px)",
+        backdropFilter:       entered ? "blur(10px)" : "blur(0px)",
+        WebkitBackdropFilter: entered ? "blur(10px)" : "blur(0px)",
         transition: "background-color 400ms ease, backdrop-filter 400ms ease, -webkit-backdrop-filter 400ms ease",
       }}
       onClick={dismiss}
@@ -153,8 +147,7 @@ export function CelebrationOverlay({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-
-        {/* ── Imagen del gato (cuadrante según nivel) ── */}
+        {/* ── Imagen del gato ── */}
         <div className="relative overflow-hidden">
           {/* Confetti sobre la imagen */}
           <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
@@ -174,10 +167,9 @@ export function CelebrationOverlay({
             ))}
           </div>
 
-          {/* Imagen del gato (archivo individual por nivel) */}
           <img
-            src={catSrc(levelNumber)}
-            alt={`Gato nivel ${levelNumber}`}
+            src={`/level-cat-${catLevel}.jpg`}
+            alt={`¡Nivel ${catLevel} completado!`}
             className="w-full"
             draggable={false}
           />
@@ -185,55 +177,47 @@ export function CelebrationOverlay({
 
         {/* ── Cuerpo crema ── */}
         <div className="bg-cream px-6 pb-8 pt-5">
-
-          {/* Saludo personalizado */}
           <p className="text-center font-display text-2xl font-bold text-ink">
             ¡Felicidades, {firstName}!
           </p>
-
-          {/* Sub-línea según contexto */}
           <p className="mt-1 text-center text-sm text-ink-muted">
-            {isNewLevel && hasRewards
-              ? `Alcanzaste el ${lLabel} ${levelNumber}${levelName ? ` · ${levelName}` : ""} y tienes ${newRewards.length === 1 ? "un premio" : `${newRewards.length} premios`} para canjear.`
-              : isNewLevel
-                ? `Alcanzaste el ${lLabel} ${levelNumber}${levelName ? ` · ${levelName}` : ""}. ¡Sigue acumulando!`
-                : `Tienes ${newRewards.length === 1 ? "un premio listo" : `${newRewards.length} premios listos`} para canjear.`}
+            Completaste tus sellos y{" "}
+            {newRewards.length === 1
+              ? "tienes un premio listo"
+              : `tienes ${newRewards.length} premios listos`}{" "}
+            para canjear.
           </p>
 
           {/* Premio(s) */}
-          {hasRewards && (
-            <div className="mt-5 space-y-2.5">
-              {newRewards.map((t) => (
-                <div
-                  key={t.stamps_required}
-                  className="flex items-center gap-3.5 rounded-2xl border-2 border-mustard-deep/35 bg-mustard/20 px-4 py-4"
-                >
-                  <span className="flex-none text-3xl leading-none">🎁</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider2 text-mustard-deep">
-                      Premio disponible
-                    </p>
-                    <p className="truncate font-display text-base font-semibold text-ink">
-                      {t.reward_name}
-                    </p>
-                  </div>
-                  <span className="flex-none rounded-full bg-mustard-deep/20 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-mustard-deep">
-                    ¡Listo!
-                  </span>
+          <div className="mt-5 space-y-2.5">
+            {newRewards.map((t) => (
+              <div
+                key={t.stamps_required}
+                className="flex items-center gap-3.5 rounded-2xl border-2 border-mustard-deep/35 bg-mustard/20 px-4 py-4"
+              >
+                <span className="flex-none text-3xl leading-none">🎁</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider2 text-mustard-deep">
+                    Premio disponible
+                  </p>
+                  <p className="truncate font-display text-base font-semibold text-ink">
+                    {t.reward_name}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+                <span className="flex-none rounded-full bg-mustard-deep/20 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-mustard-deep">
+                  ¡Listo!
+                </span>
+              </div>
+            ))}
+          </div>
 
-          {/* Instrucción si hay premio */}
-          {hasRewards && (
-            <div className="mt-4 flex items-start gap-3 rounded-2xl bg-ink/5 px-4 py-3.5">
-              <span className="mt-0.5 flex-none text-xl leading-none">📲</span>
-              <p className="text-[11.5px] leading-relaxed text-ink-muted">
-                Muestra tu tarjeta al cajero y pídele que escanee tu QR para canjear.
-              </p>
-            </div>
-          )}
+          {/* Instrucción */}
+          <div className="mt-4 flex items-start gap-3 rounded-2xl bg-ink/5 px-4 py-3.5">
+            <span className="mt-0.5 flex-none text-xl leading-none">📲</span>
+            <p className="text-[11.5px] leading-relaxed text-ink-muted">
+              Muestra tu tarjeta al cajero y pídele que escanee tu código QR para canjear.
+            </p>
+          </div>
 
           {/* Botón CTA */}
           <button
@@ -241,7 +225,7 @@ export function CelebrationOverlay({
             onClick={dismiss}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl bg-ink px-5 py-[1.05rem] font-display text-base font-semibold text-cream shadow-card transition active:scale-[0.97]"
           >
-            {hasRewards ? "¡Entendido, voy a canjear!" : "¡Genial!"}
+            ¡Entendido, voy a canjear!
             <span className="text-mustard">→</span>
           </button>
 
