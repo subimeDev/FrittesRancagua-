@@ -80,11 +80,12 @@ export function useLoyaltyAccount(
   useEffect(() => {
     if (state.status !== "authenticated") return;
     if (document.visibilityState !== "visible") return;
+    // 5 s para que los sellos aparezcan casi en tiempo real tras el escaneo del cajero
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") {
         void refresh();
       }
-    }, 30_000);
+    }, 5_000);
     return () => window.clearInterval(interval);
   }, [state.status, refresh]);
 

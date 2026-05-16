@@ -124,6 +124,7 @@ export default function HomePage(): JSX.Element {
         customerName={account.name}
         readyTiers={celebrationTiers}
         allTiers={programConfig?.tiers ?? []}
+        redemptions={account.redemptions}
       />
       {!isOnline ? (
         <div className="mb-4 rounded-lg border border-line bg-cream-muted px-3 py-2 text-xs text-ink-muted">

@@ -4,31 +4,35 @@ import { useEffect, useRef, useState } from "react";
 
 // ─── Persistencia ─────────────────────────────────────────────────────────
 
-const REWARDS_KEY = "frittes-celebrated";
+const REWARDS_KEY  = "frittes-celebrated";
 const CAT_COUNT_KEY = "frittes-cat-count";
 
 type Tier = { stamps_required: number; reward_name: string };
 
-function getNewRewards(customerId: string, tiers: Tier[]): Tier[] {
+// La clave incluye `redemptions` para que en cada nuevo ciclo de sellos
+// la celebración vuelva a dispararse aunque sea el mismo tier.
+function rewardKey(customerId: string, stampsRequired: number, redemptions: number): string {
+  return `${customerId}:${stampsRequired}:${redemptions}`;
+}
+
+function getNewRewards(customerId: string, tiers: Tier[], redemptions: number): Tier[] {
   try {
     const raw = localStorage.getItem(REWARDS_KEY) ?? "[]";
     const celebrated = new Set(JSON.parse(raw) as string[]);
-    return tiers.filter((t) => !celebrated.has(`${customerId}:${t.stamps_required}`));
+    return tiers.filter((t) => !celebrated.has(rewardKey(customerId, t.stamps_required, redemptions)));
   } catch { return tiers; }
 }
 
-function markCelebrated(customerId: string, tiers: Tier[]): void {
+function markCelebrated(customerId: string, tiers: Tier[], redemptions: number): void {
   try {
     const raw = localStorage.getItem(REWARDS_KEY) ?? "[]";
     const celebrated = new Set(JSON.parse(raw) as string[]);
-    tiers.forEach((t) => celebrated.add(`${customerId}:${t.stamps_required}`));
+    tiers.forEach((t) => celebrated.add(rewardKey(customerId, t.stamps_required, redemptions)));
     localStorage.setItem(REWARDS_KEY, JSON.stringify([...celebrated]));
   } catch {}
 }
 
-// ─── Qué gato mostrar ──────────────────────────────────────────────────────
-// Si hay tiers configurados: índice del primer premio nuevo (1-4).
-// Si no hay tiers (modelo de umbral único): contador por cliente (cicla 1-4).
+// ─── Gato según nivel ─────────────────────────────────────────────────────
 
 function computeCatLevel(customerId: string, newRewards: Tier[], allTiers: Tier[]): number {
   if (allTiers.length > 0 && newRewards.length > 0) {
@@ -36,7 +40,6 @@ function computeCatLevel(customerId: string, newRewards: Tier[], allTiers: Tier[
     const idx = sorted.findIndex((t) => t.stamps_required === newRewards[0].stamps_required);
     return Math.min(Math.max(idx + 1, 1), 4);
   }
-  // modelo umbral único: cicla entre 1 y 4 según veces que ya celebró
   try {
     const n = parseInt(localStorage.getItem(`${CAT_COUNT_KEY}:${customerId}`) ?? "0", 10) || 0;
     return (n % 4) + 1;
@@ -69,20 +72,18 @@ const CONFETTI: Array<{ color: string; x: number; delay: number; w: number; h: n
   { color: "#1A1815", x: 83, delay: 0.43, w: 10, h: 7  },
 ];
 
-// ─── Props ─────────────────────────────────────────────────────────────────
+// ─── Tipos ─────────────────────────────────────────────────────────────────
+
+type ShowState = { newRewards: Tier[]; catLevel: number };
 
 type Props = {
   customerId: string;
   customerName: string;
-  /** Premios recién alcanzados (sin canjear aún). */
   readyTiers: Tier[];
-  /** Todos los tiers del programa, para calcular el número de nivel del gato. */
   allTiers: Tier[];
-};
-
-type ShowState = {
-  newRewards: Tier[];
-  catLevel: number;
+  /** Número total de canjes — distingue cada ciclo para que la celebración
+   *  vuelva a aparecer cuando el cliente completa sellos por segunda vez. */
+  redemptions: number;
 };
 
 // ─── Componente ────────────────────────────────────────────────────────────
@@ -92,33 +93,56 @@ export function CelebrationOverlay({
   customerName,
   readyTiers,
   allTiers,
+  redemptions,
 }: Props): JSX.Element | null {
-  const [show, setShow] = useState<ShowState | null>(null);
+  const [show, setShow]       = useState<ShowState | null>(null);
   const [entered, setEntered] = useState(false);
-  const checked = useRef(false);
+
+  // Ref para la clave del último lote de tiers procesado.
+  // Formato: "stampsReq1:stampsReq2:...|redemptions"
+  // Se actualiza cada vez que el polling trae datos nuevos, permitiendo
+  // detectar nuevos premios incluso después de que el overlay fue cerrado.
+  const lastKeyRef = useRef<string>("");
+  const showRef    = useRef<ShowState | null>(null);
+  showRef.current  = show;
 
   useEffect(() => {
-    if (checked.current || readyTiers.length === 0) return;
-    checked.current = true;
+    if (readyTiers.length === 0) return;
 
-    const newRewards = getNewRewards(customerId, readyTiers);
+    // Clave estable que combina qué tiers están listos + cuántos canjes llevamos
+    const tiersKey = readyTiers
+      .map((t) => t.stamps_required)
+      .sort((a, b) => a - b)
+      .join(",") + `|${redemptions}`;
+
+    // Solo procesar si realmente cambió algo
+    if (tiersKey === lastKeyRef.current) return;
+    lastKeyRef.current = tiersKey;
+
+    // No interrumpir un overlay que ya está visible
+    if (showRef.current !== null) return;
+
+    const newRewards = getNewRewards(customerId, readyTiers, redemptions);
     if (newRewards.length === 0) return;
 
     const catLevel = computeCatLevel(customerId, newRewards, allTiers);
     setShow({ newRewards, catLevel });
+    setEntered(false);
     requestAnimationFrame(() => requestAnimationFrame(() => setEntered(true)));
-  }, [customerId, readyTiers, allTiers]);
+  }, [customerId, readyTiers, allTiers, redemptions]);
 
   if (!show) return null;
 
   const firstName = customerName.split(" ")[0];
 
   function dismiss(): void {
-    markCelebrated(customerId, show!.newRewards);
-    // Si no hay tiers configurados, avanzar el contador para el próximo ciclo
+    markCelebrated(customerId, show!.newRewards, redemptions);
     if (allTiers.length === 0) incrementCatCount(customerId);
     setEntered(false);
-    setTimeout(() => setShow(null), 440);
+    setTimeout(() => {
+      setShow(null);
+      setEntered(false);
+    }, 440);
   }
 
   const { newRewards, catLevel } = show;
@@ -130,7 +154,7 @@ export function CelebrationOverlay({
       aria-label="¡Premio disponible!"
       className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
       style={{
-        backgroundColor: entered ? "rgba(26,24,21,0.72)" : "rgba(26,24,21,0)",
+        backgroundColor:      entered ? "rgba(26,24,21,0.72)" : "rgba(26,24,21,0)",
         backdropFilter:       entered ? "blur(10px)" : "blur(0px)",
         WebkitBackdropFilter: entered ? "blur(10px)" : "blur(0px)",
         transition: "background-color 400ms ease, backdrop-filter 400ms ease, -webkit-backdrop-filter 400ms ease",
@@ -148,12 +172,10 @@ export function CelebrationOverlay({
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Imagen del gato ── */}
-        {/* pt-5 px-4 evita que las esquinas redondeadas del modal corten la imagen */}
         <div
           className="relative px-4 pt-5 pb-1"
           style={{ background: "#F6F1DD" }}
         >
-          {/* Confetti sobre la imagen */}
           <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
             {CONFETTI.map((c, i) => (
               <span
@@ -192,7 +214,6 @@ export function CelebrationOverlay({
             para canjear.
           </p>
 
-          {/* Premio(s) */}
           <div className="mt-5 space-y-2.5">
             {newRewards.map((t) => (
               <div
@@ -215,7 +236,6 @@ export function CelebrationOverlay({
             ))}
           </div>
 
-          {/* Instrucción */}
           <div className="mt-4 flex items-start gap-3 rounded-2xl bg-ink/5 px-4 py-3.5">
             <span className="mt-0.5 flex-none text-xl leading-none">📲</span>
             <p className="text-[11.5px] leading-relaxed text-ink-muted">
@@ -223,7 +243,6 @@ export function CelebrationOverlay({
             </p>
           </div>
 
-          {/* Botón CTA */}
           <button
             type="button"
             onClick={dismiss}
