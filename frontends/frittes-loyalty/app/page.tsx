@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { AuthFlow } from "@/components/auth-flow";
+import { CelebrationOverlay } from "@/components/celebration-overlay";
 import { InstallButton } from "@/components/install-prompt";
 import { SkeletonPass } from "@/components/skeleton-pass";
 import { toast } from "@/components/toast";
@@ -108,8 +109,24 @@ export default function HomePage(): JSX.Element {
   const nextTier = tierViews.find((t) => t.status === "locked");
   const readyTiers = tierViews.filter((t) => t.status === "available");
 
+  // Cubre tanto el modelo de tiers como el modelo de umbral único
+  const celebrationTiers: Array<{ stamps_required: number; reward_name: string }> =
+    readyTiers.length > 0
+      ? readyTiers
+      : ready
+        ? [{ stamps_required: account.threshold, reward_name: rewardCopy }]
+        : [];
+
   return (
     <main className="relative mx-auto min-h-screen max-w-3xl px-5 py-8">
+      <CelebrationOverlay
+        customerId={account.id}
+        customerName={account.name}
+        readyTiers={celebrationTiers}
+        currentLevelNumber={account.current_level?.number ?? 0}
+        currentLevelName={account.current_level?.name ?? ""}
+        levelLabel={programConfig?.level_label ?? account.level_label ?? "Nivel"}
+      />
       {!isOnline ? (
         <div className="mb-4 rounded-lg border border-line bg-cream-muted px-3 py-2 text-xs text-ink-muted">
           Sin conexion - mostrando datos guardados

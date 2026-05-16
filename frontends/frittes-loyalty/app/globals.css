@@ -166,6 +166,32 @@
     opacity: 0.5;
   }
 
+  /* Trofeo de celebración: entra con rebote y luego flota suavemente. */
+  @keyframes trophy-pop {
+    0%   { transform: scale(0.25) rotate(-18deg); opacity: 0; }
+    55%  { transform: scale(1.22) rotate(6deg);   opacity: 1; }
+    78%  { transform: scale(0.94) rotate(-3deg); }
+    100% { transform: scale(1)    rotate(0deg);   opacity: 1; }
+  }
+  @keyframes trophy-float {
+    0%, 100% { transform: translateY(0px); }
+    50%      { transform: translateY(-7px); }
+  }
+  .animate-trophy {
+    animation:
+      trophy-pop   650ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      trophy-float 3.2s  ease-in-out 900ms infinite;
+  }
+
+  /* Brillo pulsante para el círculo del trofeo. */
+  @keyframes glow-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,210,63,0); }
+    50%      { box-shadow: 0 0 0 14px rgba(255,210,63,0.25); }
+  }
+  .animate-glow-pulse {
+    animation: glow-pulse 2.4s ease-in-out 600ms infinite;
+  }
+
   /* Entrada de toasts — mobile: sube desde abajo; desktop: entra desde la derecha. */
   @keyframes toast-in-up {
     from { transform: translateY(12px); opacity: 0; }
