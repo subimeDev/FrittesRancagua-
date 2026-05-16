@@ -20,6 +20,12 @@ class RegisterRequest(BaseModel):
     email: str | None = None
 
 
+class CardLevelView(BaseModel):
+    number: int
+    name: str
+    stamps_required: int
+
+
 class CustomerResponse(BaseModel):
     id: str
     name: str
@@ -31,6 +37,9 @@ class CustomerResponse(BaseModel):
     redemptions: int
     tier: str
     member_since: datetime
+    level_label: str = "Nivel"
+    current_level: CardLevelView | None = None
+    next_level: CardLevelView | None = None
 
 
 class DevLoginRequest(BaseModel):

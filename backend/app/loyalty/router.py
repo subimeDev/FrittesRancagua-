@@ -71,7 +71,10 @@ async def register_customer(
         samesite="lax",
         max_age=settings.session_ttl_minutes * 60,
     )
-    return SessionResponse(session_token=token, customer=service.customer_to_response(customer))
+    return SessionResponse(
+        session_token=token,
+        customer=await service.build_customer_response(db, customer, restaurant_id),
+    )
 
 
 @router.post("/auth/dev-login", response_model=SessionResponse)
@@ -97,7 +100,10 @@ async def dev_login(
         samesite="lax",
         max_age=settings.session_ttl_minutes * 60,
     )
-    return SessionResponse(session_token=token, customer=service.customer_to_response(customer))
+    return SessionResponse(
+        session_token=token,
+        customer=await service.build_customer_response(db, customer, restaurant_id),
+    )
 
 
 @router.post("/auth/request-otp", status_code=204)
@@ -122,7 +128,10 @@ async def verify_otp(
     customer = (await db.execute(stmt)).scalar_one_or_none()
     otp_token, _ = service.create_customer_session(customer) if customer else ("", datetime.now(timezone.utc))
     if customer:
-        return SessionResponse(session_token=otp_token, customer=service.customer_to_response(customer))
+        return SessionResponse(
+            session_token=otp_token,
+            customer=await service.build_customer_response(db, customer, restaurant_id),
+        )
     # Temporary OTP session token for profile completion.
     token, _ = create_token(
         subject=f"otp:{payload.phone}",
@@ -158,7 +167,10 @@ async def email_login(
         samesite="lax",
         max_age=settings.session_ttl_minutes * 60,
     )
-    return SessionResponse(session_token=token, customer=service.customer_to_response(customer))
+    return SessionResponse(
+        session_token=token,
+        customer=await service.build_customer_response(db, customer, restaurant_id),
+    )
 
 
 @router.get("/customers/check")
@@ -180,8 +192,12 @@ async def check_customer(
 
 
 @router.get("/customers/me", response_model=CustomerResponse)
-async def me(customer: Customer = Depends(get_current_customer)) -> CustomerResponse:
-    return service.customer_to_response(customer)
+async def me(
+    customer: Customer = Depends(get_current_customer),
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> CustomerResponse:
+    return await service.build_customer_response(db, customer, restaurant_id)
 
 
 @router.post("/auth/sign-out", status_code=204)
@@ -236,6 +252,7 @@ async def program_config(
 ) -> dict[str, object]:
     """Public endpoint — no auth required. Returns the current loyalty program settings."""
     tiers = await service.tiers_payload(db, restaurant_id)
+    levels = await service.levels_payload(db, restaurant_id)
     config = await db.get(RestaurantConfig, restaurant_id)
     if not config:
         return {
@@ -243,12 +260,16 @@ async def program_config(
             "reward_name": tiers[-1]["reward_name"],
             "tier_name": "Maisonero",
             "tiers": tiers,
+            "levels": levels,
+            "level_label": "Nivel",
         }
     return {
         "threshold": config.threshold,
         "reward_name": config.reward_name,
         "tier_name": config.tier_name,
         "tiers": tiers,
+        "levels": levels,
+        "level_label": config.level_label,
     }
 
 

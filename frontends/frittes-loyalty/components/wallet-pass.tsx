@@ -13,10 +13,18 @@ type WalletPassTier = {
   reward_name: string;
 };
 
+type WalletPassLevel = {
+  number: number;
+  name: string;
+  stamps_required: number;
+};
+
 type WalletPassProps = {
   account: LoyaltyCustomerDto;
   branding: FrittesBranding;
   tiers: WalletPassTier[];
+  levels?: WalletPassLevel[];
+  levelLabel?: string;
   qrToken: string | null;
   isQrExpired: boolean;
   onRefreshQr: () => void;
@@ -37,10 +45,29 @@ export function WalletPass({
   account,
   branding,
   tiers,
+  levels = [],
+  levelLabel,
   qrToken,
   isQrExpired,
   onRefreshQr,
 }: WalletPassProps): JSX.Element {
+  const label = levelLabel ?? account.level_label ?? "Nivel";
+  const sortedLevels = useMemo(
+    () => [...levels].sort((a, b) => a.stamps_required - b.stamps_required),
+    [levels],
+  );
+  const currentLevel = account.current_level ?? null;
+  const nextLevel = account.next_level ?? null;
+  const levelProgressPct = nextLevel
+    ? Math.min(
+        100,
+        Math.round(
+          ((account.lifetime_stamps - (currentLevel?.stamps_required ?? 0)) /
+            Math.max(1, nextLevel.stamps_required - (currentLevel?.stamps_required ?? 0))) *
+            100,
+        ),
+      )
+    : 100;
   const [flipped, setFlipped] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const confettiFired = useRef(false);
@@ -157,9 +184,12 @@ export function WalletPass({
             <p className="mt-0.5 font-display text-2xl font-semibold leading-tight text-ink">
               {account.name}
             </p>
-            <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-cream-muted px-2.5 py-0.5 text-[11px] font-medium text-ink-muted">
-              <span className="h-1.5 w-1.5 rounded-full bg-mustard-deep" />
-              {account.tier}
+            <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-cream">
+              <span className="text-[9px] font-bold uppercase tracking-wider2 text-mustard">
+                {account.level_label ?? "Nivel"} {account.current_level?.number ?? 1}
+              </span>
+              <span className="h-2.5 w-px bg-cream/30" />
+              <span>{account.current_level?.name ?? account.tier}</span>
             </p>
 
             <div className="mt-5 border-b border-dashed border-line pb-4">
@@ -317,12 +347,68 @@ export function WalletPass({
             </p>
           </header>
 
-          <section className="p-5">
+          <section className="p-5 pb-14">
             <StampGrid stamps={account.stamps} threshold={account.threshold} tiers={tiers} />
             {tiers.length > 0 ? (
               <p className="mt-2 text-center text-[9px] uppercase tracking-wider2 text-ink-muted">
                 🎁 recompensa en el sello {tiers.map((t) => t.stamps_required).join(" · ")}
               </p>
+            ) : null}
+
+            {sortedLevels.length > 0 ? (
+              <div className="mt-4 rounded-xl border border-line bg-cream-muted/40 p-3">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider2 text-ink-muted">
+                    Tu {label.toLowerCase()}
+                  </p>
+                  {nextLevel ? (
+                    <p className="text-[9px] font-medium text-ink-muted">
+                      {nextLevel.stamps_required - account.lifetime_stamps} para {label} {nextLevel.number}
+                    </p>
+                  ) : (
+                    <p className="text-[9px] font-semibold uppercase tracking-wider2 text-mustard-deep">
+                      Nivel máximo
+                    </p>
+                  )}
+                </div>
+                <p className="mt-1 font-display text-base font-semibold text-ink">
+                  {label} {currentLevel?.number ?? 1}{" "}
+                  <span className="text-ink-muted">·</span>{" "}
+                  <span className="text-mustard-deep">{currentLevel?.name ?? sortedLevels[0]?.name}</span>
+                </p>
+                <div
+                  className="mt-2 h-1.5 w-full overflow-hidden rounded-full"
+                  style={{ background: "var(--brand-cream)" }}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{
+                      width: `${levelProgressPct}%`,
+                      background: "var(--brand-mustard-deep)",
+                    }}
+                  />
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {sortedLevels.map((l) => {
+                    const reached = account.lifetime_stamps >= l.stamps_required;
+                    const isCurrent = currentLevel?.number === l.number;
+                    return (
+                      <span
+                        key={l.number}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-semibold ${
+                          isCurrent
+                            ? "bg-ink text-cream"
+                            : reached
+                              ? "bg-mustard/40 text-ink"
+                              : "bg-cream-muted text-ink-muted"
+                        }`}
+                      >
+                        {reached ? "✓" : "🔒"} {label} {l.number}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
 
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">

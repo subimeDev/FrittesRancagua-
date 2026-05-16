@@ -16,11 +16,14 @@ import { useQrToken } from "@/lib/use-qr-token";
 import { useLoyaltyAccount } from "@/lib/use-loyalty-account";
 
 type RewardTier = { stamps_required: number; reward_name: string };
+type CardLevel = { number: number; name: string; stamps_required: number };
 type ProgramConfig = {
   threshold: number;
   reward_name: string;
   tier_name: string;
   tiers: RewardTier[];
+  levels?: CardLevel[];
+  level_label?: string;
 };
 type TierStatus = "available" | "locked";
 type TierView = RewardTier & { status: TierStatus };
@@ -207,6 +210,8 @@ export default function HomePage(): JSX.Element {
         account={account}
         branding={effectiveBranding}
         tiers={tierViews}
+        levels={programConfig?.levels ?? []}
+        levelLabel={programConfig?.level_label ?? account.level_label ?? "Nivel"}
         qrToken={qrToken}
         isQrExpired={isExpired}
         onRefreshQr={() => {

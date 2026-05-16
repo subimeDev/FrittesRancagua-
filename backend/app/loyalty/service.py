@@ -15,6 +15,7 @@ from app.loyalty.exceptions import (
     RewardTierNotFoundError,
 )
 from app.models import (
+    CardLevel,
     Customer,
     PendingOtp,
     RestaurantConfig,
@@ -23,7 +24,7 @@ from app.models import (
     Transaction,
     TransactionKind,
 )
-from app.schemas import CustomerResponse, StaffPublic
+from app.schemas import CardLevelView, CustomerResponse, StaffPublic
 from app.security import (
     create_token,
     decode_token,
@@ -36,7 +37,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def customer_to_response(customer: Customer) -> CustomerResponse:
+def customer_to_response(
+    customer: Customer,
+    *,
+    level_label: str = "Nivel",
+    current_level: CardLevelView | None = None,
+    next_level: CardLevelView | None = None,
+) -> CustomerResponse:
     return CustomerResponse(
         id=customer.id,
         name=customer.name,
@@ -48,7 +55,76 @@ def customer_to_response(customer: Customer) -> CustomerResponse:
         redemptions=customer.redemptions,
         tier=customer.tier,
         member_since=customer.member_since,
+        level_label=level_label,
+        current_level=current_level,
+        next_level=next_level,
     )
+
+
+async def build_customer_response(
+    db: AsyncSession, customer: Customer, restaurant_id: str
+) -> CustomerResponse:
+    """Customer DTO including the level state derived from lifetime_stamps."""
+    level_label, current, nxt = await customer_level_state(db, customer, restaurant_id)
+    return customer_to_response(
+        customer, level_label=level_label, current_level=current, next_level=nxt
+    )
+
+
+async def resolve_card_levels(db: AsyncSession, restaurant_id: str) -> list[CardLevel]:
+    rows = (
+        await db.execute(
+            select(CardLevel)
+            .where(CardLevel.restaurant_id == restaurant_id)
+            .order_by(CardLevel.stamps_required)
+        )
+    ).scalars().all()
+    return list(rows)
+
+
+async def levels_payload(db: AsyncSession, restaurant_id: str) -> list[dict[str, object]]:
+    rows = await resolve_card_levels(db, restaurant_id)
+    return [
+        {"number": i + 1, "name": r.name, "stamps_required": r.stamps_required}
+        for i, r in enumerate(rows)
+    ]
+
+
+async def customer_level_state(
+    db: AsyncSession, customer: Customer, restaurant_id: str
+) -> tuple[str, CardLevelView | None, CardLevelView | None]:
+    """Return (level_label, current_level, next_level) for a customer based on
+    lifetime_stamps. Current is the highest level whose threshold is reached;
+    next is the immediately higher one (None if already maxed)."""
+    rows = await resolve_card_levels(db, restaurant_id)
+    config = await db.get(RestaurantConfig, restaurant_id)
+    level_label = config.level_label if config else "Nivel"
+    if not rows:
+        return level_label, None, None
+    current_idx: int | None = None
+    for i, lvl in enumerate(rows):
+        if customer.lifetime_stamps >= lvl.stamps_required:
+            current_idx = i
+    current = (
+        CardLevelView(
+            number=current_idx + 1,
+            name=rows[current_idx].name,
+            stamps_required=rows[current_idx].stamps_required,
+        )
+        if current_idx is not None
+        else None
+    )
+    next_idx = (current_idx + 1) if current_idx is not None else 0
+    nxt = (
+        CardLevelView(
+            number=next_idx + 1,
+            name=rows[next_idx].name,
+            stamps_required=rows[next_idx].stamps_required,
+        )
+        if next_idx < len(rows)
+        else None
+    )
+    return level_label, current, nxt
 
 
 def staff_to_public(staff: StaffUser) -> StaffPublic:

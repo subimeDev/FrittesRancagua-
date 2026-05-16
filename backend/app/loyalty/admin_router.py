@@ -12,6 +12,7 @@ from app.deps import api_error, get_current_staff, get_db, get_restaurant_id
 from app.loyalty import service
 from app.loyalty.exceptions import InsufficientStampsError, RewardTierNotFoundError
 from app.models import (
+    CardLevel,
     Customer,
     RestaurantConfig,
     RewardTier,
@@ -293,6 +294,7 @@ async def get_config(
     _: StaffUser = Depends(get_current_staff),
 ) -> dict[str, object]:
     tiers = await service.tiers_payload(db, restaurant_id)
+    levels = await service.levels_payload(db, restaurant_id)
     config = await db.get(RestaurantConfig, restaurant_id)
     if not config:
         return {
@@ -300,12 +302,16 @@ async def get_config(
             "reward_name": tiers[-1]["reward_name"],
             "tier_name": "Maisonero",
             "tiers": tiers,
+            "levels": levels,
+            "level_label": "Nivel",
         }
     return {
         "threshold": config.threshold,
         "reward_name": config.reward_name,
         "tier_name": config.tier_name,
         "tiers": tiers,
+        "levels": levels,
+        "level_label": config.level_label,
     }
 
 
@@ -391,6 +397,98 @@ async def update_tiers(
 
     await db.commit()
     return {"tiers": [{"stamps_required": s, "reward_name": n} for s, n in cleaned]}
+
+
+# ---------------------------------------------------------------------------
+# Card levels (membership progression) — manager only to write
+# ---------------------------------------------------------------------------
+
+@router.get("/levels")
+async def get_levels(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(get_current_staff),
+) -> dict[str, object]:
+    config = await db.get(RestaurantConfig, restaurant_id)
+    return {
+        "level_label": config.level_label if config else "Nivel",
+        "levels": await service.levels_payload(db, restaurant_id),
+    }
+
+
+class LevelInput(BaseModel):
+    name: str
+    stamps_required: int
+
+
+class UpdateLevelsRequest(BaseModel):
+    # Either field is optional so the admin UI can update the label without
+    # resending all levels, or vice-versa.
+    level_label: str | None = None
+    levels: list[LevelInput] | None = None
+
+
+@router.put("/levels")
+async def update_levels(
+    payload: UpdateLevelsRequest,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    if payload.levels is not None:
+        if not payload.levels:
+            raise api_error(400, "invalid_input", "Debe haber al menos un nivel")
+        if len(payload.levels) > 10:
+            raise api_error(400, "invalid_input", "Máximo 10 niveles")
+        seen: set[int] = set()
+        cleaned: list[tuple[int, str]] = []
+        for lvl in payload.levels:
+            name = lvl.name.strip()
+            if not name:
+                raise api_error(400, "invalid_input", "Cada nivel necesita un nombre")
+            if len(name) > 60:
+                raise api_error(400, "invalid_input", "Nombre demasiado largo")
+            if lvl.stamps_required < 0 or lvl.stamps_required > 10000:
+                raise api_error(400, "invalid_input", "Sellos requeridos fuera de rango (0–10000)")
+            if lvl.stamps_required in seen:
+                raise api_error(400, "invalid_input", "No puede haber dos niveles con el mismo umbral de sellos")
+            seen.add(lvl.stamps_required)
+            cleaned.append((lvl.stamps_required, name))
+        cleaned.sort()
+        now = datetime.now(timezone.utc)
+        await db.execute(sql_delete(CardLevel).where(CardLevel.restaurant_id == restaurant_id))
+        for stamps_required, name in cleaned:
+            db.add(CardLevel(
+                id=f"lvl_{uuid4().hex[:12]}",
+                restaurant_id=restaurant_id,
+                stamps_required=stamps_required,
+                name=name,
+                created_at=now,
+            ))
+
+    if payload.level_label is not None:
+        label = payload.level_label.strip()
+        if not label:
+            raise api_error(400, "invalid_input", "La etiqueta no puede ser vacía")
+        if len(label) > 40:
+            raise api_error(400, "invalid_input", "La etiqueta es demasiado larga")
+        config = await db.get(RestaurantConfig, restaurant_id)
+        if not config:
+            config = RestaurantConfig(
+                restaurant_id=restaurant_id,
+                level_label=label,
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(config)
+        else:
+            config.level_label = label
+
+    await db.commit()
+    config = await db.get(RestaurantConfig, restaurant_id)
+    return {
+        "level_label": config.level_label if config else "Nivel",
+        "levels": await service.levels_payload(db, restaurant_id),
+    }
 
 
 class UpdateConfigRequest(BaseModel):

@@ -100,7 +100,23 @@ class RestaurantConfig(Base):
     threshold: Mapped[int] = mapped_column(Integer, default=10)
     reward_name: Mapped[str] = mapped_column(String(200), default="Papas fritas gratis")
     tier_name: Mapped[str] = mapped_column(String(80), default="Maisonero")
+    # The customizable word for the per-card progression system. "Nivel" by default,
+    # but the admin can rename it ("Rango", "Categoría", etc.).
+    level_label: Mapped[str] = mapped_column(String(40), default="Nivel")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class CardLevel(Base):
+    """A membership tier reached once a customer's lifetime_stamps crosses
+    `stamps_required`. Levels never demote (lifetime_stamps only grows)."""
+
+    __tablename__ = "card_levels"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    restaurant_id: Mapped[str] = mapped_column(String(80), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    stamps_required: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class RewardTier(Base):

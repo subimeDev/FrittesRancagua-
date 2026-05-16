@@ -54,11 +54,24 @@ type RewardTier = {
   reward_name: string;
 };
 
+type CardLevel = {
+  number: number;
+  name: string;
+  stamps_required: number;
+};
+
+type LevelsResponse = {
+  level_label: string;
+  levels: CardLevel[];
+};
+
 type ProgramConfig = {
   threshold: number;
   reward_name: string;
   tier_name: string;
   tiers: RewardTier[];
+  levels?: CardLevel[];
+  level_label?: string;
 };
 
 type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "staff";
@@ -730,6 +743,10 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
   const [savedTiers, setSavedTiers] = useState<RewardTier[]>([]);
   const [tierName, setTierName] = useState("Maisonero");
   const [savedTierName, setSavedTierName] = useState("Maisonero");
+  const [levels, setLevels] = useState<CardLevel[]>([]);
+  const [savedLevels, setSavedLevels] = useState<CardLevel[]>([]);
+  const [levelLabel, setLevelLabel] = useState("Nivel");
+  const [savedLevelLabel, setSavedLevelLabel] = useState("Nivel");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -746,6 +763,12 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
         setSavedTiers(list);
         setTierName(cfg.tier_name);
         setSavedTierName(cfg.tier_name);
+        const cfgLevels = cfg.levels ?? [];
+        setLevels(cfgLevels);
+        setSavedLevels(cfgLevels);
+        const label = cfg.level_label ?? "Nivel";
+        setLevelLabel(label);
+        setSavedLevelLabel(label);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -766,9 +789,29 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
   }
 
   const sortedTiers = [...tiers].sort((a, b) => a.stamps_required - b.stamps_required);
+  const sortedLevels = [...levels].sort((a, b) => a.stamps_required - b.stamps_required);
   const tiersDirty = JSON.stringify(savedTiers) !== JSON.stringify(tiers);
   const nameDirty = tierName.trim() !== savedTierName;
-  const isDirty = tiersDirty || nameDirty;
+  const levelsDirty =
+    JSON.stringify(savedLevels.map((l) => ({ name: l.name, s: l.stamps_required }))) !==
+    JSON.stringify(levels.map((l) => ({ name: l.name, s: l.stamps_required })));
+  const labelDirty = levelLabel.trim() !== savedLevelLabel;
+  const isDirty = tiersDirty || nameDirty || levelsDirty || labelDirty;
+
+  function updateLevel(index: number, patch: Partial<CardLevel>): void {
+    setLevels((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
+  }
+  function addLevel(): void {
+    setLevels((prev) => {
+      if (prev.length >= 10) return prev;
+      const maxStamps = prev.reduce((m, l) => Math.max(m, l.stamps_required), -1);
+      const next = maxStamps < 0 ? 0 : maxStamps + 10;
+      return [...prev, { number: prev.length + 1, name: "", stamps_required: next }];
+    });
+  }
+  function removeLevel(index: number): void {
+    setLevels((prev) => prev.filter((_, i) => i !== index));
+  }
 
   function validate(): string | null {
     if (tiers.length === 0) return "Agrega al menos un nivel de recompensa";
@@ -779,6 +822,17 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
       if (seen.has(t.stamps_required)) return "No puede haber dos niveles con la misma cantidad de sellos";
       seen.add(t.stamps_required);
       if (!t.reward_name.trim()) return "Cada nivel necesita un nombre de premio";
+    }
+    if (!levelLabel.trim()) return "La etiqueta del nivel no puede estar vacía";
+    if (levels.length === 0) return "Agrega al menos un nivel de tarjeta";
+    if (levels.length > 10) return "Máximo 10 niveles de tarjeta";
+    const seenLvl = new Set<number>();
+    for (const l of levels) {
+      if (!l.name.trim()) return "Cada nivel de tarjeta necesita un nombre";
+      if (!Number.isFinite(l.stamps_required) || l.stamps_required < 0 || l.stamps_required > 10000)
+        return "Los sellos de cada nivel deben estar entre 0 y 10000";
+      if (seenLvl.has(l.stamps_required)) return "No puede haber dos niveles con el mismo umbral";
+      seenLvl.add(l.stamps_required);
     }
     return null;
   }
@@ -812,6 +866,24 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
         });
         setTierName(res.tier_name);
         setSavedTierName(res.tier_name);
+      }
+      if (levelsDirty || labelDirty) {
+        const body: { level_label?: string; levels?: { name: string; stamps_required: number }[] } = {};
+        if (labelDirty) body.level_label = levelLabel.trim();
+        if (levelsDirty) {
+          body.levels = sortedLevels.map((l) => ({
+            name: l.name.trim(),
+            stamps_required: l.stamps_required,
+          }));
+        }
+        const res = await adminRequest<LevelsResponse>("/loyalty/admin/levels", token, {
+          method: "PUT",
+          body,
+        });
+        setLevels(res.levels);
+        setSavedLevels(res.levels);
+        setLevelLabel(res.level_label);
+        setSavedLevelLabel(res.level_label);
       }
       setSaved(true);
       window.setTimeout(() => setSaved(false), 3000);
@@ -919,6 +991,88 @@ function ConfigTab({ token }: { token: string }): JSX.Element {
             + Agregar nivel
           </button>
         )}
+      </div>
+
+      {/* Niveles de tarjeta — progresión por sellos acumulados */}
+      <div className="space-y-4 rounded-2xl border border-line bg-white p-5 shadow-sm">
+        <div>
+          <p className="text-sm font-bold text-ink">Niveles de tarjeta</p>
+          <p className="mt-0.5 text-xs text-black/40">
+            Progresión del cliente según sus sellos acumulados de por vida. Nunca baja, aunque canjee premios.
+          </p>
+        </div>
+
+        <label className="block space-y-1.5">
+          <span className="text-xs font-semibold text-ink">Etiqueta para mostrar</span>
+          <input
+            type="text"
+            value={levelLabel}
+            onChange={(e) => setLevelLabel(e.target.value)}
+            maxLength={40}
+            placeholder="Nivel"
+            className="w-full rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-black/30 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+          />
+          <p className="text-xs text-black/40">
+            La palabra que verá el cliente. Ej: <span className="font-mono">{levelLabel || "Nivel"} 2 · {sortedLevels[1]?.name || "Habitual"}</span>
+          </p>
+        </label>
+
+        <div className="space-y-2">
+          {sortedLevels.map((l, displayIdx) => {
+            const realIndex = levels.indexOf(l);
+            return (
+              <div key={realIndex} className="flex items-center gap-2">
+                <span className="grid h-9 w-9 flex-none place-items-center rounded-xl bg-cream-muted text-xs font-bold text-ink">
+                  {displayIdx + 1}
+                </span>
+                <div className="flex items-center overflow-hidden rounded-xl border border-line bg-cream">
+                  <input
+                    type="number"
+                    min={0}
+                    max={10000}
+                    value={l.stamps_required}
+                    onChange={(e) => updateLevel(realIndex, { stamps_required: Number(e.target.value) })}
+                    className="w-20 bg-transparent px-3 py-2.5 text-sm font-bold text-ink focus:outline-none"
+                  />
+                  <span className="border-l border-line px-2 py-2.5 text-[10px] uppercase tracking-wide text-black/40">
+                    sellos
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={l.name}
+                  onChange={(e) => updateLevel(realIndex, { name: e.target.value })}
+                  maxLength={60}
+                  placeholder="Nombre del nivel"
+                  className="flex-1 rounded-xl border border-line bg-cream px-4 py-2.5 text-sm text-ink placeholder:text-black/30 focus:border-mustard-deep focus:outline-none focus:ring-2 focus:ring-mustard-deep/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeLevel(realIndex)}
+                  disabled={levels.length <= 1}
+                  className="grid h-9 w-9 flex-none place-items-center rounded-xl border border-line text-black/40 hover:bg-cream disabled:opacity-30"
+                  aria-label="Eliminar nivel"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        {levels.length < 10 && (
+          <button
+            type="button"
+            onClick={addLevel}
+            className="w-full rounded-xl border border-dashed border-line py-2.5 text-sm font-semibold text-black/50 hover:bg-cream"
+          >
+            + Agregar {levelLabel.trim() || "Nivel"}
+          </button>
+        )}
+
+        <p className="rounded-xl bg-cream-muted/60 px-3 py-2 text-[11px] text-black/50">
+          💡 El primer nivel suele tener <strong>0 sellos</strong> para que todo cliente nuevo lo tenga desde el inicio.
+        </p>
       </div>
 
       {/* Nombre del nivel / membresía */}

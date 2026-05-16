@@ -118,6 +118,12 @@ export type RewardTierDto = {
   reward_name: string;
 };
 
+export type CardLevelDto = {
+  number: number;
+  name: string;
+  stamps_required: number;
+};
+
 export type LoyaltyCustomerDto = {
   id: string;
   name: string;
@@ -129,6 +135,9 @@ export type LoyaltyCustomerDto = {
   redemptions: number;
   tier: string;
   member_since: string;
+  level_label?: string;
+  current_level?: CardLevelDto | null;
+  next_level?: CardLevelDto | null;
 };
 
 export type ProgramConfigDto = {
@@ -136,6 +145,8 @@ export type ProgramConfigDto = {
   reward_name: string;
   tier_name: string;
   tiers: RewardTierDto[];
+  levels?: CardLevelDto[];
+  level_label?: string;
 };
 
 export type RegisterDto = {
