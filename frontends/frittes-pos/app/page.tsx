@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { InstallButton } from "@/components/install-button";
 import { ApiError, type TransactionResult, accrue, redeem } from "@/lib/api";
 
 type UiState = "auth-check" | "dashboard" | "scanner" | "customer-card" | "confirmation" | "error";
@@ -327,6 +328,8 @@ export default function PosHomePage(): JSX.Element {
               <span className="text-black/30">›</span>
             </button>
           ) : null}
+
+          <InstallButton />
         </section>
       ) : null}
 

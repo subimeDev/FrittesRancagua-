@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { AddToWallet } from "@/components/add-to-wallet";
 import { AuthFlow } from "@/components/auth-flow";
-import { InstallPrompt } from "@/components/install-prompt";
+import { InstallButton } from "@/components/install-prompt";
 import { SkeletonPass } from "@/components/skeleton-pass";
 import { toast } from "@/components/toast";
 import { WalletPass } from "@/components/wallet-pass";
@@ -33,8 +32,6 @@ export default function HomePage(): JSX.Element {
   const { token: qrToken, isExpired, refresh: refreshQr, secondsLeft } = useQrToken(sessionToken);
   const isOnline = useOnlineStatus();
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [isRefreshingQr, setIsRefreshingQr] = useState(false);
-  const [isOpeningWallet, setIsOpeningWallet] = useState(false);
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null);
   const viewedPass = useRef(false);
 
@@ -111,46 +108,6 @@ export default function HomePage(): JSX.Element {
   const nextTier = tierViews.find((t) => t.status === "locked");
   const readyTiers = tierViews.filter((t) => t.status === "available");
 
-  async function handleWallet(): Promise<void> {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      toast.error("Falta NEXT_PUBLIC_API_URL.");
-      return;
-    }
-
-    setIsOpeningWallet(true);
-    try {
-      track("google_wallet_clicked");
-      const headers: Record<string, string> = {
-        "X-Restaurant-Id": process.env.NEXT_PUBLIC_RESTAURANT_ID || "frittes-maison",
-      };
-      if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
-      const response = await fetch(`${apiUrl}/loyalty/passes/google/me`, {
-        headers,
-        credentials: "include",
-      });
-      if (response.status === 401) {
-        await signOut();
-        return;
-      }
-      if (!response.ok)
-        throw new ApiError("No se pudo abrir Wallet", response.status, "wallet_error");
-
-      const payload = (await response.json()) as { url?: string };
-      if (!payload.url)
-        throw new ApiError("Save link no disponible", 500, "wallet_error");
-      window.location.href = payload.url;
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "rate_limited") {
-        toast.error("Muchos intentos. Intenta en unos segundos.");
-      } else {
-        toast.error("Algo no salio bien. Reintenta.");
-      }
-    } finally {
-      setIsOpeningWallet(false);
-    }
-  }
-
   return (
     <main className="relative mx-auto min-h-screen max-w-3xl px-5 py-8">
       {!isOnline ? (
@@ -215,7 +172,6 @@ export default function HomePage(): JSX.Element {
         qrToken={qrToken}
         isQrExpired={isExpired}
         onRefreshQr={() => {
-          setIsRefreshingQr(true);
           void refreshQr()
             .then(() => {
               track("qr_refreshed");
@@ -230,8 +186,7 @@ export default function HomePage(): JSX.Element {
                 return;
               }
               toast.error("Algo no salio bien. Reintenta.");
-            })
-            .finally(() => setIsRefreshingQr(false));
+            });
         }}
       />
       <p className="mt-2 text-center text-[11px] text-ink-muted">
@@ -322,19 +277,7 @@ export default function HomePage(): JSX.Element {
         </div>
       </section>
 
-      {/* ADD TO WALLET */}
-      <section className="mx-auto mt-6 max-w-sm space-y-3">
-        <p className="text-center text-[11px] font-semibold uppercase tracking-wider2 text-ink-muted">
-          Llevalo siempre contigo
-        </p>
-        <AddToWallet
-          disabled={isOpeningWallet || isRefreshingQr}
-          onGoogleWallet={() => {
-            void handleWallet();
-          }}
-        />
-      </section>
-      <InstallPrompt />
+      <InstallButton />
 
       <Footer />
     </main>

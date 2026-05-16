@@ -7,55 +7,46 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-const DISMISSED_KEY = "pwa-prompt:dismissed";
-
-export function InstallPrompt(): JSX.Element | null {
+export function InstallButton(): JSX.Element | null {
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
-  const [hidden, setHidden] = useState(true);
 
   useEffect(() => {
-    if (localStorage.getItem(DISMISSED_KEY) === "1") return;
     const handler = (event: Event): void => {
       event.preventDefault();
       setDeferred(event as BeforeInstallPromptEvent);
-      setHidden(false);
     };
     window.addEventListener("beforeinstallprompt", handler);
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
-  if (hidden || !deferred) return null;
+  if (!deferred) return null;
 
   return (
-    <div className="mx-auto mt-4 max-w-sm rounded-xl border border-line bg-cream-elev p-3 text-sm text-ink shadow-card">
-      <p>Agrega Frittes a tu pantalla de inicio para acceso rapido.</p>
-      <div className="mt-2 flex gap-2">
-        <button
-          type="button"
-          className="rounded-lg bg-mustard px-3 py-1.5 text-xs font-semibold"
-          onClick={() => {
-            void deferred.prompt();
-            void deferred.userChoice.then((choice) => {
-              if (choice.outcome === "dismissed") {
-                localStorage.setItem(DISMISSED_KEY, "1");
-              }
-              setHidden(true);
-            });
-          }}
+    <section className="mx-auto mt-6 max-w-sm">
+      <button
+        type="button"
+        onClick={() => {
+          void deferred.prompt();
+          void deferred.userChoice.then(() => setDeferred(null));
+        }}
+        className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-line bg-cream-elev px-5 py-3.5 text-sm font-semibold text-ink shadow-card transition active:scale-[0.98]"
+      >
+        <svg
+          aria-hidden
+          className="h-4 w-4 flex-none text-ink-muted"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
         >
-          Agregar
-        </button>
-        <button
-          type="button"
-          className="rounded-lg border border-line px-3 py-1.5 text-xs"
-          onClick={() => {
-            localStorage.setItem(DISMISSED_KEY, "1");
-            setHidden(true);
-          }}
-        >
-          Ahora no
-        </button>
-      </div>
-    </div>
+          <path d="M12 17V3" />
+          <path d="m6 11 6 6 6-6" />
+          <path d="M19 21H5" />
+        </svg>
+        Instalar app
+      </button>
+    </section>
   );
 }
