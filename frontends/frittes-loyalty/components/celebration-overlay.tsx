@@ -148,7 +148,11 @@ export function CelebrationOverlay({
         onClick={(e) => e.stopPropagation()}
       >
         {/* ── Imagen del gato ── */}
-        <div className="relative overflow-hidden">
+        {/* pt-5 px-4 evita que las esquinas redondeadas del modal corten la imagen */}
+        <div
+          className="relative px-4 pt-5 pb-1"
+          style={{ background: "#F6F1DD" }}
+        >
           {/* Confetti sobre la imagen */}
           <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
             {CONFETTI.map((c, i) => (
@@ -168,9 +172,9 @@ export function CelebrationOverlay({
           </div>
 
           <img
-            src={`/level-cat-${catLevel}.jpg`}
+            src={`/level-cat-${catLevel}.png`}
             alt={`¡Nivel ${catLevel} completado!`}
-            className="w-full"
+            className="w-full rounded-3xl"
             draggable={false}
           />
         </div>
