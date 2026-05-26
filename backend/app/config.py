@@ -37,7 +37,11 @@ class Settings(BaseSettings):
     google_wallet_credentials_json: str | None = None
     pos_app_url: str = "https://frittes-pos-production.up.railway.app"
     cors_origins: list[str] = Field(
-        default_factory=lambda: ["http://localhost:3001", "http://localhost:3002"]
+        default_factory=lambda: [
+            "http://localhost:3001",
+            "http://localhost:3002",
+            "https://frittes2026.cl",
+        ]
     )
 
     @field_validator("cors_origins", mode="before")
