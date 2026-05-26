@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -36,20 +37,27 @@ class Settings(BaseSettings):
     google_wallet_issuer_id: str | None = None
     google_wallet_credentials_json: str | None = None
     pos_app_url: str = "https://frittes-pos-production.up.railway.app"
-    cors_origins: list[str] = Field(
-        default_factory=lambda: [
-            "http://localhost:3001",
-            "http://localhost:3002",
-            "https://frittes2026.cl",
-        ]
+    # Se mantiene como str (no list) para que pydantic-settings NO intente
+    # decodificar la env var con json.loads y nos rompa el arranque si el valor
+    # no es JSON estricto. Aceptamos tanto JSON `["a","b"]` como CSV `a,b,c`.
+    cors_origins_raw: str = Field(
+        default="http://localhost:3001,http://localhost:3002,https://frittes2026.cl",
+        validation_alias="CORS_ORIGINS",
     )
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [part.strip() for part in value.split(",") if part.strip()]
-        return value
+    @property
+    def cors_origins(self) -> list[str]:
+        raw = (self.cors_origins_raw or "").strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(o).strip() for o in parsed if str(o).strip()]
+            except json.JSONDecodeError:
+                pass
+        return [o.strip() for o in raw.split(",") if o.strip()]
 
     @field_validator("jwt_secret")
     @classmethod
