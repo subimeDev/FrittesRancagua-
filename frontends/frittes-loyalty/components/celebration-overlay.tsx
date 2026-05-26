@@ -38,11 +38,11 @@ function computeCatLevel(customerId: string, newRewards: Tier[], allTiers: Tier[
   if (allTiers.length > 0 && newRewards.length > 0) {
     const sorted = [...allTiers].sort((a, b) => a.stamps_required - b.stamps_required);
     const idx = sorted.findIndex((t) => t.stamps_required === newRewards[0].stamps_required);
-    return Math.min(Math.max(idx + 1, 1), 4);
+    return Math.min(Math.max(idx + 1, 1), 8);
   }
   try {
     const n = parseInt(localStorage.getItem(`${CAT_COUNT_KEY}:${customerId}`) ?? "0", 10) || 0;
-    return (n % 4) + 1;
+    return (n % 8) + 1;
   } catch { return 1; }
 }
 
