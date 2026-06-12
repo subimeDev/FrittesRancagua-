@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { AddToWallet } from "@/components/add-to-wallet";
 import { AuthFlow } from "@/components/auth-flow";
 import { CelebrationOverlay } from "@/components/celebration-overlay";
 import { InstallButton } from "@/components/install-prompt";
@@ -9,7 +10,7 @@ import { SkeletonPass } from "@/components/skeleton-pass";
 import { toast } from "@/components/toast";
 import { WalletPass } from "@/components/wallet-pass";
 import { track } from "@/lib/analytics";
-import { ApiError } from "@/lib/api";
+import { ApiError, fetchGoogleWalletUrl, fetchWalletStatus } from "@/lib/api";
 import { branding, instagramUrl, whatsappUrl } from "@/lib/branding";
 import { useOnlineStatus } from "@/lib/use-online-status";
 import { useQrToken } from "@/lib/use-qr-token";
@@ -34,7 +35,52 @@ export default function HomePage(): JSX.Element {
   const isOnline = useOnlineStatus();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [programConfig, setProgramConfig] = useState<ProgramConfig | null>(null);
+  const [walletAvailable, setWalletAvailable] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
   const viewedPass = useRef(false);
+
+  // Feature gate del botón "Save to Google Wallet": solo se muestra si el
+  // backend tiene GOOGLE_WALLET_ISSUER_ID y credenciales configuradas.
+  useEffect(() => {
+    void fetchWalletStatus()
+      .then((s) => setWalletAvailable(s.available))
+      .catch(() => setWalletAvailable(false));
+  }, []);
+
+  async function handleAddToGoogleWallet(): Promise<void> {
+    if (!sessionToken || walletLoading) return;
+    setWalletLoading(true);
+    try {
+      const { url } = await fetchGoogleWalletUrl(sessionToken);
+      // Allow-list del destino: solo redirigimos a pay.google.com por HTTPS.
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        toast.error("No pudimos generar el pase. Intenta nuevamente.");
+        return;
+      }
+      if (parsed.protocol !== "https:" || parsed.hostname !== "pay.google.com") {
+        toast.error("No pudimos generar el pase. Intenta nuevamente.");
+        return;
+      }
+      track("wallet_save_initiated");
+      // Misma pestaña: en iOS window.open abre Safari y rompe la sesión PWA.
+      window.location.href = url;
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "unauthenticated") {
+        await signOut();
+        return;
+      }
+      toast.error(
+        err instanceof ApiError && err.code === "wallet_not_configured"
+          ? "Google Wallet aún no está disponible."
+          : "No pudimos generar el pase. Intenta nuevamente.",
+      );
+    } finally {
+      setWalletLoading(false);
+    }
+  }
 
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "";
@@ -208,6 +254,18 @@ export default function HomePage(): JSX.Element {
       <p className="mt-2 text-center text-[11px] text-ink-muted">
         QR {isExpired ? "expirado" : `vigente (${secondsLeft}s)`}
       </p>
+
+      {walletAvailable ? (
+        <div className="mx-auto mt-4 max-w-sm">
+          <AddToWallet
+            disabled={!sessionToken || walletLoading}
+            onGoogleWallet={() => void handleAddToGoogleWallet()}
+          />
+          <p className="mt-2 text-center text-[10px] text-ink-muted">
+            Guárdalo en Google Wallet y muéstralo sin abrir la app.
+          </p>
+        </div>
+      ) : null}
 
       {/* Recompensas del club — cada hito con su estado */}
       <section className="mx-auto mt-5 max-w-sm">

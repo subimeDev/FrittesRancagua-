@@ -172,3 +172,21 @@ export type QrTokenDto = {
   token: string;
   exp_at: string;
 };
+
+export type WalletStatusDto = {
+  available: boolean;
+};
+
+export type WalletSaveUrlDto = {
+  url: string;
+};
+
+/** Feature gate: el backend reporta si Google Wallet está configurado. */
+export function fetchWalletStatus(): Promise<WalletStatusDto> {
+  return apiRequest<WalletStatusDto>("/loyalty/passes/google/status");
+}
+
+/** URL `pay.google.com/gp/v/save/<jwt>` con el saldo actual del cliente. */
+export function fetchGoogleWalletUrl(token: string): Promise<WalletSaveUrlDto> {
+  return apiRequest<WalletSaveUrlDto>("/loyalty/passes/google/me", { token });
+}

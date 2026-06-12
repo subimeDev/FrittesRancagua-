@@ -228,6 +228,17 @@ async def get_qr(customer: Customer = Depends(get_current_customer)) -> QrTokenR
     return QrTokenResponse(token=token, exp_at=exp)
 
 
+@router.get("/passes/google/status")
+async def google_wallet_status() -> dict[str, bool]:
+    """Feature gate público: la PWA solo muestra el botón 'Save to Google
+    Wallet' si el backend tiene credenciales configuradas."""
+    settings = get_settings()
+    available = bool(
+        settings.google_wallet_issuer_id and settings.google_wallet_credentials_json
+    )
+    return {"available": available}
+
+
 @router.get("/passes/google/me")
 async def google_wallet_pass(
     customer: Customer = Depends(get_current_customer),
