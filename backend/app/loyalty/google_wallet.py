@@ -436,6 +436,48 @@ def update_loyalty_object(
         logger.warning("wallet_sync outer failure customer=%s err=%s", customer.id, exc)
 
 
+# ─── Anuncio a TODOS los pases (broadcast a la clase) ────────────────────────
+
+# Contador de anuncios enviados hoy (in-memory, se resetea por deploy). Google
+# limita a 3 notificaciones por pase cada 24h; este tope nuestro es más
+# conservador para no quemar el cupo ni molestar a los clientes.
+_ANNOUNCE_DAILY_CAP = 2
+_announce_log: dict[str, int] = {}  # {"YYYY-MM-DD": count}
+
+
+def announcements_today() -> int:
+    return _announce_log.get(time.strftime("%Y-%m-%d"), 0)
+
+
+def announcements_remaining() -> int:
+    return max(0, _ANNOUNCE_DAILY_CAP - announcements_today())
+
+
+def broadcast_class_message(header: str, body: str) -> None:
+    """Manda un mensaje con notificación a TODOS los pases guardados de Frittes
+    de una sola vez (addmessage a la CLASE — Google lo propaga a cada objeto).
+
+    Levanta excepción si Google falla (a diferencia del sync, acá el manager
+    espera saber si se envió o no). El llamador controla el rate-limit diario.
+    """
+    if not is_wallet_configured():
+        raise ValueError("Google Wallet no está configurado.")
+    service = _service()
+    service.loyaltyclass().addmessage(
+        resourceId=_class_id(),
+        body={
+            "message": {
+                "id": f"anuncio-{uuid.uuid4().hex[:12]}",
+                "header": header,
+                "body": body,
+                "messageType": "TEXT_AND_NOTIFY",
+            }
+        },
+    ).execute()
+    day = time.strftime("%Y-%m-%d")
+    _announce_log[day] = _announce_log.get(day, 0) + 1
+
+
 # ─── Compatibilidad hacia atrás ──────────────────────────────────────────────
 
 

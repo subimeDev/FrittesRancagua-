@@ -722,3 +722,76 @@ async def update_proximity(
         "longitude": config.longitude,
         "proximity_message": config.proximity_message,
     }
+
+
+# ---------------------------------------------------------------------------
+# Anuncio a clientes con la tarjeta en Google Wallet (broadcast a la clase)
+# ---------------------------------------------------------------------------
+
+
+class AnnounceRequest(BaseModel):
+    header: str
+    body: str
+
+
+@router.get("/announce")
+async def announce_status(
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    """Cuántos anuncios quedan hoy (para mostrarlo en el admin)."""
+    from app.loyalty.google_wallet import (
+        announcements_remaining,
+        announcements_today,
+        is_wallet_configured,
+    )
+
+    return {
+        "wallet_configured": is_wallet_configured(),
+        "sent_today": announcements_today(),
+        "remaining_today": announcements_remaining(),
+    }
+
+
+@router.post("/announce")
+async def announce(
+    payload: AnnounceRequest,
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    """Manda una notificación a TODOS los clientes con el pase guardado.
+
+    Un solo addmessage a la clase → Google lo propaga a cada pase. Rate-limit
+    diario propio (más conservador que el de Google) para no quemar el cupo de
+    3/día por pase ni molestar a los clientes."""
+    import asyncio
+
+    from app.loyalty.google_wallet import (
+        announcements_remaining,
+        broadcast_class_message,
+        is_wallet_configured,
+    )
+
+    header = payload.header.strip()
+    body = payload.body.strip()
+    if not header or not body:
+        raise api_error(400, "invalid_input", "El título y el mensaje son obligatorios.")
+    if len(header) > 60:
+        raise api_error(400, "invalid_input", "El título no puede superar 60 caracteres.")
+    if len(body) > 250:
+        raise api_error(400, "invalid_input", "El mensaje no puede superar 250 caracteres.")
+    if not is_wallet_configured():
+        raise api_error(503, "wallet_not_configured", "Google Wallet no está configurado.")
+    if announcements_remaining() <= 0:
+        raise api_error(
+            429, "rate_limited",
+            "Ya enviaste el máximo de anuncios por hoy. Intenta mañana.",
+        )
+
+    try:
+        await asyncio.to_thread(broadcast_class_message, header, body)
+    except Exception as exc:
+        logger.exception("announce broadcast failed")
+        raise api_error(502, "wallet_provider_error", "Google rechazó el envío. Reintenta.") from exc
+
+    from app.loyalty.google_wallet import announcements_remaining as _rem
+
+    return {"ok": True, "remaining_today": _rem()}

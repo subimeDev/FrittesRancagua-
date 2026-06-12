@@ -113,3 +113,25 @@ export function updateProximity(
     token: sessionToken,
   });
 }
+
+export type AnnounceStatus = {
+  wallet_configured: boolean;
+  sent_today: number;
+  remaining_today: number;
+};
+
+export function getAnnounceStatus(sessionToken: string): Promise<AnnounceStatus> {
+  return request<AnnounceStatus>("/loyalty/admin/announce", { token: sessionToken });
+}
+
+export function sendAnnounce(
+  sessionToken: string,
+  header: string,
+  body: string,
+): Promise<{ ok: boolean; remaining_today: number }> {
+  return request<{ ok: boolean; remaining_today: number }>("/loyalty/admin/announce", {
+    method: "POST",
+    body: { header, body },
+    token: sessionToken,
+  });
+}
