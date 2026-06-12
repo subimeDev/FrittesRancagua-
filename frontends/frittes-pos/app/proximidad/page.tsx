@@ -49,6 +49,10 @@ export default function ProximidadPage(): JSX.Element {
   const [message, setMessage] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<Array<{ label: string; lat: number; lon: number }>>([]);
+
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
@@ -132,6 +136,47 @@ export default function ProximidadPage(): JSX.Element {
       cancelled = true;
     };
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Búsqueda inteligente por nombre/dirección (geocoder de OpenStreetMap,
+  // gratis, sin API key). Sesgada a Chile para mejores resultados.
+  async function runSearch(): Promise<void> {
+    const q = query.trim();
+    if (q.length < 3 || searching) return;
+    setSearching(true);
+    setResults([]);
+    setFeedback(null);
+    try {
+      const url =
+        "https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=cl" +
+        `&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>;
+      const mapped = data.map((d) => ({
+        label: d.display_name,
+        lat: Number(d.lat),
+        lon: Number(d.lon),
+      }));
+      setResults(mapped);
+      if (mapped.length === 0) {
+        setFeedback({ kind: "error", text: "Sin resultados. Prueba con la dirección o más detalle." });
+      }
+    } catch {
+      setFeedback({ kind: "error", text: "No se pudo buscar (revisa tu conexión)." });
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function pickResult(r: { label: string; lat: number; lon: number }): void {
+    const la = Number(r.lat.toFixed(6));
+    const ln = Number(r.lon.toFixed(6));
+    setLat(la);
+    setLng(ln);
+    setResults([]);
+    setQuery(r.label.split(",").slice(0, 2).join(",").trim());
+    const L = (window as any).L;
+    if (L) placeMarker(L, la, ln);
+  }
 
   function useMyLocation(): void {
     if (!navigator.geolocation) {
@@ -226,6 +271,54 @@ export default function ProximidadPage(): JSX.Element {
         <p className="text-sm" style={{ color: "#6B6660" }}>Cargando…</p>
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
+          {/* Buscador inteligente */}
+          <div className="relative">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Busca: Frittes Maison, o una dirección…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void runSearch();
+                  }
+                }}
+                className="min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm"
+                style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
+              />
+              <button
+                type="button"
+                onClick={() => void runSearch()}
+                disabled={searching || query.trim().length < 3}
+                className="rounded-xl px-4 text-sm font-semibold disabled:opacity-50"
+                style={{ background: "#1A1815", color: "#FFD23F" }}
+              >
+                {searching ? "…" : "Buscar"}
+              </button>
+            </div>
+            {results.length > 0 ? (
+              <ul
+                className="absolute z-[1000] mt-1 w-full overflow-hidden rounded-xl border shadow-lg"
+                style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
+              >
+                {results.map((r, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      onClick={() => pickResult(r)}
+                      className="block w-full px-4 py-2.5 text-left text-xs leading-snug hover:bg-black/5"
+                      style={{ color: "#1A1815", borderTop: i > 0 ? "1px solid #E2DCCC" : "none" }}
+                    >
+                      {r.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+
           {/* Mapa interactivo */}
           <div
             ref={mapDivRef}
