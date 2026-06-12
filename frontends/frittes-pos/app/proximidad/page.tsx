@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { ApiError, getProximity, updateProximity, type Proximity } from "@/lib/api";
@@ -9,79 +9,171 @@ import { ApiError, getProximity, updateProximity, type Proximity } from "@/lib/a
  * Apartado OCULTO de proximidad (geofence de Google Wallet) para Frittes.
  *
  * No hay botón a esta página en ninguna parte del POS: se entra por URL directa
- * `/proximidad`. Es deliberado — la feature se cobra aparte, así que solo
- * llegamos acá cuando el cliente pagó. Igual exige sesión de manager (el
- * endpoint del backend valida require_manager).
+ * `/proximidad`. La feature se cobra aparte, así que solo llegamos acá cuando
+ * el cliente pagó. Exige sesión de manager (el backend valida require_manager).
+ *
+ * Mapa: Leaflet + OpenStreetMap (sin API key). El manager hace clic en el mapa
+ * o usa "mi ubicación" → lat/lng se calculan solas, sin copiar coordenadas.
  */
+
+const FRITTES_DEFAULT: [number, number] = [-34.170417, -70.740189]; // Rancagua centro aprox.
+
+// Carga Leaflet desde CDN una sola vez (no es dependencia npm: la página es
+// interna y poco visitada, no justifica sumar el bundle a todo el POS).
+function loadLeaflet(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const w = window as any;
+    if (w.L) {
+      resolve(w.L);
+      return;
+    }
+    const css = document.createElement("link");
+    css.rel = "stylesheet";
+    css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(css);
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => resolve((window as any).L);
+    script.onerror = () => reject(new Error("No se pudo cargar el mapa."));
+    document.head.appendChild(script);
+  });
+}
+
 export default function ProximidadPage(): JSX.Element {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [lat, setLat] = useState("");
-  const [lng, setLng] = useState("");
+  const [lat, setLat] = useState<number | null>(null);
+  const [lng, setLng] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const mapDivRef = useRef<HTMLDivElement>(null);
+
+  // Mantiene el marker sincronizado cuando lat/lng cambian por cualquier vía.
+  function placeMarker(L: any, la: number, ln: number, recenter = true): void {
+    if (!mapRef.current) return;
+    if (markerRef.current) {
+      markerRef.current.setLatLng([la, ln]);
+    } else {
+      markerRef.current = L.marker([la, ln], { draggable: true }).addTo(mapRef.current);
+      markerRef.current.on("dragend", () => {
+        const p = markerRef.current.getLatLng();
+        setLat(Number(p.lat.toFixed(6)));
+        setLng(Number(p.lng.toFixed(6)));
+      });
+    }
+    if (recenter) mapRef.current.setView([la, ln], Math.max(mapRef.current.getZoom(), 16));
+  }
+
+  function goLogin(): void {
+    router.replace("/login?next=/proximidad");
+  }
+
+  // Auth + carga inicial.
   useEffect(() => {
     const t = localStorage.getItem("frittes-pos:session");
     if (!t) {
-      router.replace("/login");
+      goLogin();
       return;
     }
     setToken(t);
     void getProximity(t)
       .then((p) => {
-        setLat(p.latitude != null ? String(p.latitude) : "");
-        setLng(p.longitude != null ? String(p.longitude) : "");
+        if (p.latitude != null && p.longitude != null) {
+          setLat(p.latitude);
+          setLng(p.longitude);
+        }
         setMessage(p.proximity_message ?? "");
       })
       .catch((err) => {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          setFeedback({ kind: "error", text: "Necesitas iniciar sesión como manager." });
+        // 401 = sesión vencida → re-login (vuelve acá). 403 = no es manager.
+        if (err instanceof ApiError && err.status === 401) {
+          goLogin();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 403) {
+          setFeedback({ kind: "error", text: "Tu cuenta no tiene rol de manager." });
         } else {
           setFeedback({ kind: "error", text: "No se pudo cargar la configuración." });
         }
       })
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function applyResult(p: Proximity): void {
-    setLat(p.latitude != null ? String(p.latitude) : "");
-    setLng(p.longitude != null ? String(p.longitude) : "");
-    setMessage(p.proximity_message ?? "");
+  // Inicializa el mapa cuando el div ya está montado (post-loading).
+  useEffect(() => {
+    if (loading || !mapDivRef.current || mapRef.current) return;
+    let cancelled = false;
+    void loadLeaflet()
+      .then((L) => {
+        if (cancelled || !mapDivRef.current || mapRef.current) return;
+        const center: [number, number] =
+          lat != null && lng != null ? [lat, lng] : FRITTES_DEFAULT;
+        mapRef.current = L.map(mapDivRef.current).setView(center, lat != null ? 16 : 14);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: "© OpenStreetMap",
+        }).addTo(mapRef.current);
+        if (lat != null && lng != null) placeMarker(L, lat, lng, false);
+        mapRef.current.on("click", (e: any) => {
+          const la = Number(e.latlng.lat.toFixed(6));
+          const ln = Number(e.latlng.lng.toFixed(6));
+          setLat(la);
+          setLng(ln);
+          placeMarker(L, la, ln, false);
+        });
+      })
+      .catch(() => setFeedback({ kind: "error", text: "No se pudo cargar el mapa (revisa tu conexión)." }));
+    return () => {
+      cancelled = true;
+    };
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function useMyLocation(): void {
+    if (!navigator.geolocation) {
+      setFeedback({ kind: "error", text: "Tu navegador no permite ubicación." });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const la = Number(pos.coords.latitude.toFixed(6));
+        const ln = Number(pos.coords.longitude.toFixed(6));
+        setLat(la);
+        setLng(ln);
+        const L = (window as any).L;
+        if (L) placeMarker(L, la, ln);
+      },
+      () => setFeedback({ kind: "error", text: "No pudimos obtener tu ubicación (revisa permisos)." }),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!token || saving) return;
     setFeedback(null);
-
-    const latNum = lat.trim() === "" ? null : Number(lat.trim());
-    const lngNum = lng.trim() === "" ? null : Number(lng.trim());
-    if ((latNum === null) !== (lngNum === null)) {
-      setFeedback({ kind: "error", text: "Latitud y longitud deben ir juntas." });
+    if ((lat === null) !== (lng === null)) {
+      setFeedback({ kind: "error", text: "Marca un punto en el mapa." });
       return;
     }
-    if (latNum !== null && (Number.isNaN(latNum) || latNum < -90 || latNum > 90)) {
-      setFeedback({ kind: "error", text: "Latitud inválida (-90 a 90)." });
-      return;
-    }
-    if (lngNum !== null && (Number.isNaN(lngNum) || lngNum < -180 || lngNum > 180)) {
-      setFeedback({ kind: "error", text: "Longitud inválida (-180 a 180)." });
-      return;
-    }
-
     setSaving(true);
     try {
       const result = await updateProximity(token, {
-        latitude: latNum,
-        longitude: lngNum,
+        latitude: lat,
+        longitude: lng,
         proximity_message: message.trim() || null,
       });
-      applyResult(result);
+      setMessage(result.proximity_message ?? "");
       setFeedback({ kind: "ok", text: "Guardado. El geofence se sincronizó con Google Wallet." });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        goLogin();
+        return;
+      }
       const text = err instanceof ApiError ? err.message : "No se pudo guardar.";
       setFeedback({ kind: "error", text });
     } finally {
@@ -96,9 +188,19 @@ export default function ProximidadPage(): JSX.Element {
     setFeedback(null);
     try {
       const result = await updateProximity(token, { clear: true });
-      applyResult(result);
+      setLat(null);
+      setLng(null);
+      setMessage(result.proximity_message ?? "");
+      if (markerRef.current && mapRef.current) {
+        mapRef.current.removeLayer(markerRef.current);
+        markerRef.current = null;
+      }
       setFeedback({ kind: "ok", text: "Geofence apagado." });
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        goLogin();
+        return;
+      }
       const text = err instanceof ApiError ? err.message : "No se pudo apagar.";
       setFeedback({ kind: "error", text });
     } finally {
@@ -108,60 +210,50 @@ export default function ProximidadPage(): JSX.Element {
 
   return (
     <main className="mx-auto min-h-screen max-w-lg px-5 py-8" style={{ background: "#F5F1E8", color: "#1A1815" }}>
-      <header className="mb-6">
+      <header className="mb-5">
         <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#6B6660" }}>
           Apartado oculto · proximidad
         </p>
         <h1 className="mt-1 text-2xl font-black">Notificación por cercanía</h1>
         <p className="mt-3 rounded-xl px-3 py-2 text-xs leading-relaxed" style={{ background: "#EDE8DB", color: "#6B6660" }}>
-          Cuando un cliente con el pase guardado entra al radio del local, Google
-          Wallet vuelve a mostrar su tarjeta en la pantalla de bloqueo, y el pase
-          muestra la oferta de abajo como &quot;Al visitarnos&quot;. Solo Android.
+          Marca el local en el mapa y escribe la oferta. Cuando un cliente con el
+          pase guardado pase cerca, Google Wallet le muestra la tarjeta en la
+          pantalla de bloqueo con tu mensaje. Solo Android.
         </p>
       </header>
 
       {loading ? (
         <p className="text-sm" style={{ color: "#6B6660" }}>Cargando…</p>
       ) : (
-        <form onSubmit={handleSave} className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold">Latitud</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder="-34.170000"
-                value={lat}
-                onChange={(e) => setLat(e.target.value)}
-                className="w-full rounded-xl border px-4 py-2.5 text-sm"
-                style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold">Longitud</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder="-70.740000"
-                value={lng}
-                onChange={(e) => setLng(e.target.value)}
-                className="w-full rounded-xl border px-4 py-2.5 text-sm"
-                style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
-              />
-            </label>
+        <form onSubmit={handleSave} className="space-y-4">
+          {/* Mapa interactivo */}
+          <div
+            ref={mapDivRef}
+            className="w-full rounded-xl border"
+            style={{ height: 280, borderColor: "#E2DCCC", background: "#EDE8DB" }}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={useMyLocation}
+              className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border px-3 text-xs font-semibold"
+              style={{ borderColor: "#E2DCCC", color: "#1A1815" }}
+            >
+              📍 Usar mi ubicación
+            </button>
+            <span className="text-[11px]" style={{ color: "#6B6660" }}>
+              {lat != null && lng != null
+                ? `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+                : "Toca el mapa para marcar"}
+            </span>
           </div>
-
-          <p className="text-[11px] leading-relaxed" style={{ color: "#6B6660" }}>
-            En Google Maps: mantén presionado sobre el local → las coordenadas
-            aparecen arriba. Cópialas tal cual (lat, lng).
-          </p>
 
           <label className="block">
             <span className="mb-1.5 block text-sm font-semibold">Mensaje de la oferta</span>
             <textarea
               rows={2}
               maxLength={200}
-              placeholder="Estás cerca de Frittes — 10% mostrando esto en caja."
+              placeholder="Estás cerca de Frittes — 10% mostrando esto en caja 🍟"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="w-full resize-none rounded-xl border px-4 py-2.5 text-sm"

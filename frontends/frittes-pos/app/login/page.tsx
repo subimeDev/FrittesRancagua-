@@ -1,15 +1,32 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
 
 import { ApiError, staffLogin } from "@/lib/api";
+
+// Solo permitimos redirigir a rutas internas (empiezan con "/" pero no "//")
+// para que `?next=` no pueda usarse como open-redirect a un dominio externo.
+function safeNext(next: string | null): string {
+  if (next && next.startsWith("/") && !next.startsWith("//")) return next;
+  return "/";
+}
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 const RESTAURANT_ID = process.env.NEXT_PUBLIC_RESTAURANT_ID ?? "frittes-maison";
 
 export default function LoginPage(): JSX.Element {
+  return (
+    <Suspense fallback={null}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginInner(): JSX.Element {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNext(searchParams.get("next"));
   const [mode, setMode] = useState<"login" | "forgot" | "forgot_sent">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +41,7 @@ export default function LoginPage(): JSX.Element {
       const session = await staffLogin(email, password);
       localStorage.setItem("frittes-pos:session", session.session_token);
       localStorage.setItem("frittes-pos:staff", JSON.stringify(session.staff));
-      router.push("/");
+      router.push(nextPath);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Credenciales incorrectas.");
