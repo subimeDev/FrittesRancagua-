@@ -233,6 +233,20 @@ def create_qr_token(customer: Customer) -> tuple[str, datetime]:
     )
 
 
+def create_wallet_qr_token(customer: Customer) -> tuple[str, datetime]:
+    """QR del pase de Google Wallet. Mismo scope `qr` que el efímero de la
+    web (el POS lo valida igual), pero con TTL extendido: el pase no puede
+    refrescarse cada 90s como la PWA. Al consumirse (jti revocado) el próximo
+    sync del pase trae un token fresco."""
+    settings = get_settings()
+    return create_token(
+        subject=customer.id,
+        scope="qr",
+        audience=settings.restaurant_id,
+        ttl_seconds=6 * 60 * 60,
+    )
+
+
 async def register_or_login_customer(
     db: AsyncSession,
     *,

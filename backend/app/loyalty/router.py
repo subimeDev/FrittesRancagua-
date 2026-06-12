@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Literal, cast
 
@@ -28,7 +29,9 @@ from app.schemas import (
 )
 from app.security import create_token, decode_qr_claims, decode_token, hash_password, revoke_jti
 from app.loyalty import service
-from app.loyalty.google_wallet import build_save_url, create_loyalty_class_if_needed
+from app.loyalty.google_wallet import build_save_url, ensure_class, update_loyalty_object
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/loyalty", tags=["loyalty"])
 
@@ -239,21 +242,69 @@ async def google_wallet_status() -> dict[str, bool]:
     return {"available": available}
 
 
+async def _wallet_context(
+    db: AsyncSession, restaurant_id: str
+) -> tuple[RestaurantConfig, list[dict]]:
+    """Config + escalera de premios para armar el pase. Si el config aún no
+    existe en DB, usamos uno transitorio con los defaults del modelo."""
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if config is None:
+        config = RestaurantConfig(restaurant_id=restaurant_id)
+    tiers = await service.tiers_payload(db, restaurant_id)
+    return config, cast(list[dict], tiers)
+
+
 @router.get("/passes/google/me")
 async def google_wallet_pass(
     customer: Customer = Depends(get_current_customer),
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
 ) -> dict[str, str]:
     try:
-        # We call this here to ensure the class exists before generating the link.
-        # In a high-traffic app, this should be done once on startup or cached.
-        create_loyalty_class_if_needed()
-        url = build_save_url(customer)
+        config, tiers = await _wallet_context(db, restaurant_id)
+        # Upsert de la class en cada request: idempotente, y propaga cambios
+        # de programa (nombre, logo, links) a la class ya existente.
+        ensure_class(config)
+        url = build_save_url(customer, config, tiers=tiers)
         return {"url": url}
     except Exception as exc:
-        import traceback
-        print(f"DEBUG WALLET ERROR: {str(exc)}")
-        traceback.print_exc()
+        logger.exception("google_wallet_pass failed")
         raise api_error(503, "wallet_not_configured", str(exc)) from exc
+
+
+@router.get("/public/wallet/{customer_id}/stamps.png")
+async def wallet_stamps_image(
+    customer_id: str,
+    v: str = "",
+    t: str = "",
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+) -> Response:
+    """Imagen de la grilla de sellos para el heroImage del pase. Público
+    (Google la fetchea sin headers) pero firmado: sin la firma HMAC válida
+    cualquiera podría enumerar el saldo de un cliente arbitrario."""
+    import asyncio
+
+    from app.loyalty.wallet_stamps import render_frittes_stamps, verify_stamps_signature
+
+    if not verify_stamps_signature(restaurant_id, customer_id, t):
+        raise api_error(404, "not_found", "not found")
+    customer = await db.get(Customer, customer_id)
+    if customer is None or customer.restaurant_id != restaurant_id:
+        raise api_error(404, "not_found", "not found")
+    tiers = await service.tiers_payload(db, restaurant_id)
+    milestones = sorted(int(str(t_["stamps_required"])) for t_ in tiers) or [10]
+    png = await asyncio.to_thread(
+        render_frittes_stamps,
+        stamps=customer.stamps,
+        threshold=milestones[-1],
+        milestones=milestones,
+    )
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
 
 
 @router.get("/program-config")
@@ -300,6 +351,7 @@ async def staff_login(
 @router.post("/transactions/accrue", response_model=TransactionResponse)
 async def accrue(
     payload: AccrueRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     staff: StaffUser = Depends(get_current_staff),
     restaurant_id: str = Depends(get_restaurant_id),
@@ -309,7 +361,11 @@ async def accrue(
     customer, kind = await service.accrue_transaction(
         db, staff_user=staff, claims=claims, restaurant_id=restaurant_id
     )
+    config, tiers = await _wallet_context(db, restaurant_id)
     await db.commit()
+    # Sync del pase de Google Wallet en background (no bloquea la respuesta
+    # al POS; 404 si el cliente nunca guardó el pase → se ignora).
+    background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
@@ -330,8 +386,10 @@ async def redeem(
     customer, kind, reward_name = await service.redeem_transaction(
         db, staff_user=staff, claims=claims, restaurant_id=restaurant_id, tier_stamps=payload.tier_stamps
     )
+    config, tiers = await _wallet_context(db, restaurant_id)
     await db.commit()
     background_tasks.add_task(service.send_redemption_email, customer.name, customer.phone, reward_name)
+    background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     resend_from_email: str = "onboarding@resend.dev"
     google_wallet_issuer_id: str | None = None
     google_wallet_credentials_json: str | None = None
+    # URL pública HTTPS de ESTE backend — Google Wallet la usa para fetchear
+    # la imagen de sellos (heroImage). Sin ella el pase sale sin grilla.
+    backend_public_url: str = "https://bakendfrittes-production.up.railway.app"
     pos_app_url: str = "https://frittes-pos-production.up.railway.app"
     # Se mantiene como str (no list) para que pydantic-settings NO intente
     # decodificar la env var con json.loads y nos rompa el arranque si el valor
