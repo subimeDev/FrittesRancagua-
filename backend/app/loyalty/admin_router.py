@@ -738,17 +738,27 @@ class AnnounceRequest(BaseModel):
 async def announce_status(
     _: StaffUser = Depends(require_manager),
 ) -> dict[str, object]:
-    """Cuántos anuncios quedan hoy (para mostrarlo en el admin)."""
+    """Estado del panel de anuncios: envíos disponibles hoy + cuántos clientes
+    tienen el pase guardado en Google Wallet."""
+    import asyncio
+
     from app.loyalty.google_wallet import (
         announcements_remaining,
         announcements_today,
+        count_saved_passes,
         is_wallet_configured,
     )
+
+    # I/O contra Google → to_thread para no congelar el event loop. None si no
+    # se pudo contar (Wallet no configurado o error): el front lo muestra como
+    # "—" en vez de un número falso.
+    saved = await asyncio.to_thread(count_saved_passes)
 
     return {
         "wallet_configured": is_wallet_configured(),
         "sent_today": announcements_today(),
         "remaining_today": announcements_remaining(),
+        "saved_passes": saved,
     }
 
 

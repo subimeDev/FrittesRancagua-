@@ -453,6 +453,35 @@ def announcements_remaining() -> int:
     return max(0, _ANNOUNCE_DAILY_CAP - announcements_today())
 
 
+def count_saved_passes() -> int | None:
+    """Cuántos clientes tienen el pase guardado en Google Wallet.
+
+    Lista los LoyaltyObject de la clase (Google los materializa cuando el
+    cliente toca 'Guardar'), paginando. Devuelve None si Wallet no está
+    configurado o Google falla — el llamador lo trata como 'desconocido'.
+    """
+    if not is_wallet_configured():
+        return None
+    try:
+        service = _service()
+        cid = _class_id()
+        total = 0
+        token: str | None = None
+        # Límite de páginas por defensa (cada página ~hasta cientos): evita un
+        # loop infinito si la API devolviera un token que no avanza.
+        for _ in range(100):
+            req = service.loyaltyobject().list(classId=cid, maxResults=100, token=token)
+            resp = req.execute()
+            total += len(resp.get("resources", []) or [])
+            token = (resp.get("pagination") or {}).get("nextPageToken")
+            if not token:
+                break
+        return total
+    except Exception as exc:
+        logger.warning("count_saved_passes failed: %s", exc)
+        return None
+
+
 def broadcast_class_message(header: str, body: str) -> None:
     """Manda un mensaje con notificación a TODOS los pases guardados de Frittes
     de una sola vez (addmessage a la CLASE — Google lo propaga a cada objeto).

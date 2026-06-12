@@ -118,6 +118,7 @@ export type AnnounceStatus = {
   wallet_configured: boolean;
   sent_today: number;
   remaining_today: number;
+  saved_passes: number | null;
 };
 
 export function getAnnounceStatus(sessionToken: string): Promise<AnnounceStatus> {

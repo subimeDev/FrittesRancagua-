@@ -119,15 +119,33 @@ export default function AnuncioPage(): JSX.Element {
       ) : (
         <form onSubmit={handleSend} className="space-y-4">
           {status ? (
-            <div
-              className="flex items-center justify-between rounded-xl px-4 py-3 text-xs"
-              style={{ background: "#FBF8F1", border: "1px solid #E2DCCC" }}
-            >
-              <span style={{ color: "#6B6660" }}>Enviados hoy: {status.sent_today}</span>
-              <span className="font-bold" style={{ color: noQuota ? "#E55934" : "#2D5A3F" }}>
-                {status.remaining_today} disponibles hoy
-              </span>
-            </div>
+            <>
+              {/* Clientes con la tarjeta en Google Wallet */}
+              <div
+                className="flex items-center gap-3 rounded-xl px-4 py-3"
+                style={{ background: "#1A1815", color: "#F5F1E8" }}
+              >
+                <span className="text-2xl">📲</span>
+                <div>
+                  <p className="text-2xl font-black leading-none" style={{ color: "#FFD23F" }}>
+                    {status.saved_passes != null ? status.saved_passes : "—"}
+                  </p>
+                  <p className="mt-0.5 text-[11px]" style={{ color: "#cdbfa4" }}>
+                    {status.saved_passes === 1 ? "cliente tiene" : "clientes tienen"} la tarjeta en Google Wallet
+                  </p>
+                </div>
+              </div>
+
+              <div
+                className="flex items-center justify-between rounded-xl px-4 py-3 text-xs"
+                style={{ background: "#FBF8F1", border: "1px solid #E2DCCC" }}
+              >
+                <span style={{ color: "#6B6660" }}>Anuncios enviados hoy: {status.sent_today}</span>
+                <span className="font-bold" style={{ color: noQuota ? "#E55934" : "#2D5A3F" }}>
+                  {status.remaining_today} disponibles hoy
+                </span>
+              </div>
+            </>
           ) : null}
 
           <label className="block">
