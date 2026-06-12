@@ -12,6 +12,7 @@ muestra error en el frontend pero el resto de la tarjeta sigue funcionando.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -42,8 +43,12 @@ def _parse_credentials_json(raw: str) -> dict:
 
             info = json.loads(base64.b64decode(raw).decode("utf-8"))
     except Exception as e:
-        logger.error("Failed to parse GOOGLE_WALLET_CREDENTIALS_JSON: %s", e)
-        raise ValueError(f"Invalid credentials JSON format: {e}") from e
+        # No incluir `e` en el mensaje: este ValueError sube hasta api_error()
+        # y termina en la respuesta HTTP del frontend. El detalle del parse
+        # puede revelar estructura/campos del service account (client_email,
+        # private_key…). Log con el tipo de excepción, mensaje genérico afuera.
+        logger.error("Failed to parse GOOGLE_WALLET_CREDENTIALS_JSON (%s)", type(e).__name__)
+        raise ValueError("Invalid credentials JSON format") from e
 
     if not isinstance(info, dict):
         raise ValueError("Invalid credentials JSON: se esperaba un objeto")
@@ -388,7 +393,11 @@ def update_loyalty_object(
                     return
                 transient = status is None or status >= 500
                 if transient and attempt < attempts:
-                    time.sleep(0.5 * attempt)
+                    # Backoff con jitter determinista derivado del object_id:
+                    # ante una degradación de Google, los syncs concurrentes no
+                    # despiertan todos al mismo tiempo (evita thundering herd).
+                    jitter = (int(hashlib.sha1(oid.encode()).hexdigest(), 16) % 1000) / 1000.0
+                    time.sleep(0.5 * attempt + jitter)
                     continue
                 logger.warning(
                     "wallet_sync FAILED object=%s status=%s attempt=%s/%s err=%s",

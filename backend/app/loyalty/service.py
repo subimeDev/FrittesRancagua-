@@ -33,6 +33,16 @@ from app.security import (
     verify_password,
 )
 
+def _mask_email(email: str | None) -> str:
+    """Enmascara un email para logs: `ma***@gmail.com`. Evita PII en claro en
+    los logs (que suelen agregarse a servicios de terceros)."""
+    if not email or "@" not in email:
+        return "***"
+    local, _, domain = email.partition("@")
+    head = local[:2] if len(local) > 2 else local[:1]
+    return f"{head}***@{domain}"
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -315,7 +325,12 @@ async def _send_otp_email(email: str, code: str) -> None:
     logger = logging.getLogger(__name__)
     settings = get_settings()
     if not settings.resend_api_key:
-        logger.warning("RESEND_API_KEY not set — OTP code for %s: %s", email, code)
+        # El código solo se loguea en dev (sin Resend, es la única forma de
+        # verlo en local). En prod NUNCA: un OTP en logs anula el OTP.
+        if settings.app_env == "dev":
+            logger.warning("RESEND_API_KEY not set — OTP code for %s: %s", _mask_email(email), code)
+        else:
+            logger.warning("RESEND_API_KEY not set — OTP no enviado a %s", _mask_email(email))
         return
     try:
         import resend as resend_sdk
@@ -336,7 +351,7 @@ async def _send_otp_email(email: str, code: str) -> None:
     except Exception as exc:
         # Email delivery is best-effort: the OTP is already persisted in DB.
         # Don't 500 the request if Resend is in sandbox mode, rate-limited, or down.
-        logger.warning("OTP email delivery failed for %s (code=%s): %s", email, code, exc)
+        logger.warning("OTP email delivery failed for %s: %s", _mask_email(email), type(exc).__name__)
 
 
 async def send_redemption_email(customer_name: str, customer_email: str, reward_name: str) -> None:
@@ -344,7 +359,7 @@ async def send_redemption_email(customer_name: str, customer_email: str, reward_
     logger = logging.getLogger(__name__)
     settings = get_settings()
     if not settings.resend_api_key:
-        logger.info("RESEND not set — skip redemption email for %s", customer_email)
+        logger.info("RESEND not set — skip redemption email for %s", _mask_email(customer_email))
         return
     if "@" not in customer_email:
         return
@@ -376,7 +391,7 @@ async def send_redemption_email(customer_name: str, customer_email: str, reward_
             ),
         })
     except Exception as exc:
-        logger.warning("Redemption email failed for %s: %s", customer_email, exc)
+        logger.warning("Redemption email failed for %s: %s", _mask_email(customer_email), type(exc).__name__)
 
 
 async def send_password_reset_email(staff_email: str, staff_name: str, reset_url: str) -> None:
@@ -384,7 +399,11 @@ async def send_password_reset_email(staff_email: str, staff_name: str, reset_url
     logger = logging.getLogger(__name__)
     settings = get_settings()
     if not settings.resend_api_key:
-        logger.warning("RESEND not set — reset link for %s: %s", staff_email, reset_url)
+        # El reset_url contiene el token de reseteo: solo en dev.
+        if settings.app_env == "dev":
+            logger.warning("RESEND not set — reset link for %s: %s", _mask_email(staff_email), reset_url)
+        else:
+            logger.warning("RESEND not set — reset no enviado a %s", _mask_email(staff_email))
         return
     try:
         import resend as resend_sdk
@@ -409,7 +428,7 @@ async def send_password_reset_email(staff_email: str, staff_name: str, reset_url
             ),
         })
     except Exception as exc:
-        logger.warning("Password reset email failed for %s: %s", staff_email, exc)
+        logger.warning("Password reset email failed for %s: %s", _mask_email(staff_email), type(exc).__name__)
 
 
 async def request_otp(db: AsyncSession, phone: str) -> None:
