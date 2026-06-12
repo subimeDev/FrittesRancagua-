@@ -418,9 +418,19 @@ async def redeem(
     config, tiers = await _wallet_context(db, restaurant_id)
     await db.commit()
     background_tasks.add_task(service.send_redemption_email, customer.name, customer.phone, reward_name)
-    # Canje: sync silencioso (el cliente está en el local viendo su premio;
-    # la única notificación push es la de premio desbloqueado).
-    background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
+    # Canje: notificación push — además de avisar, es lo único que fuerza a
+    # Android a refrescar el pase al instante (el patch silencioso queda
+    # cacheado hasta que el cliente abre Wallet). Sin esto, el pase mostraba
+    # el cupón ya canjeado hasta volver a la web.
+    background_tasks.add_task(
+        update_loyalty_object,
+        customer,
+        config,
+        tiers=tiers,
+        notify_header="Premio canjeado ✓",
+        notify_body=f"Disfrutaste {reward_name}. ¡Vamos por el próximo!",
+        notify_priority="high",
+    )
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
