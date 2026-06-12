@@ -256,6 +256,7 @@ async def _wallet_context(
 
 @router.get("/passes/google/me")
 async def google_wallet_pass(
+    background_tasks: BackgroundTasks,
     customer: Customer = Depends(get_current_customer),
     db: AsyncSession = Depends(get_db),
     restaurant_id: str = Depends(get_restaurant_id),
@@ -266,6 +267,11 @@ async def google_wallet_pass(
         # de programa (nombre, logo, links) a la class ya existente.
         ensure_class(config)
         url = build_save_url(customer, config, tiers=tiers)
+        # Patch del objeto YA guardado: al guardar de nuevo un pase existente,
+        # Google re-vincula el objeto viejo en vez de recrearlo desde el JWT —
+        # sin este patch, un pase guardado antes de un upgrade quedaría con el
+        # formato antiguo para siempre (sin QR ni grilla).
+        background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
         return {"url": url}
     except Exception as exc:
         logger.exception("google_wallet_pass failed")
