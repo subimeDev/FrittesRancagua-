@@ -18,6 +18,18 @@ import { ApiError, getProximity, updateProximity, type Proximity } from "@/lib/a
 
 const FRITTES_DEFAULT: [number, number] = [-34.170417, -70.740189]; // Rancagua centro aprox.
 
+// Etiqueta legible de un resultado de Photon (name, calle, comuna).
+function photonLabel(p: any): string {
+  const parts = [
+    p.name,
+    [p.street, p.housenumber].filter(Boolean).join(" "),
+    p.city || p.district || p.county,
+    p.state,
+  ].filter(Boolean);
+  // Dedup simple (a veces name == street).
+  return Array.from(new Set(parts)).join(", ");
+}
+
 // Carga Leaflet desde CDN una sola vez (no es dependencia npm: la página es
 // interna y poco visitada, no justifica sumar el bundle a todo el POS).
 function loadLeaflet(): Promise<any> {
@@ -56,6 +68,7 @@ export default function ProximidadPage(): JSX.Element {
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const mapDivRef = useRef<HTMLDivElement>(null);
+  const skipNextSearch = useRef(false);
 
   // Mantiene el marker sincronizado cuando lat/lng cambian por cualquier vía.
   function placeMarker(L: any, la: number, ln: number, recenter = true): void {
@@ -137,35 +150,52 @@ export default function ProximidadPage(): JSX.Element {
     };
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Búsqueda inteligente por nombre/dirección (geocoder de OpenStreetMap,
-  // gratis, sin API key). Sesgada a Chile para mejores resultados.
-  async function runSearch(): Promise<void> {
+  // Autocompletado mientras escribes (Photon, geocoder OSM gratis sin API key).
+  // Sesgado al centro de Rancagua (lat/lon bias) para que los lugares cercanos
+  // salgan primero. Debounce de 300ms para no spamear el servicio.
+  useEffect(() => {
     const q = query.trim();
-    if (q.length < 3 || searching) return;
-    setSearching(true);
-    setResults([]);
-    setFeedback(null);
-    try {
-      const url =
-        "https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=cl" +
-        `&q=${encodeURIComponent(q)}`;
-      const res = await fetch(url, { headers: { Accept: "application/json" } });
-      const data = (await res.json()) as Array<{ display_name: string; lat: string; lon: string }>;
-      const mapped = data.map((d) => ({
-        label: d.display_name,
-        lat: Number(d.lat),
-        lon: Number(d.lon),
-      }));
-      setResults(mapped);
-      if (mapped.length === 0) {
-        setFeedback({ kind: "error", text: "Sin resultados. Prueba con la dirección o más detalle." });
-      }
-    } catch {
-      setFeedback({ kind: "error", text: "No se pudo buscar (revisa tu conexión)." });
-    } finally {
-      setSearching(false);
+    if (q.length < 3 || skipNextSearch.current) {
+      skipNextSearch.current = false;
+      setResults([]);
+      return;
     }
-  }
+    setSearching(true);
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => {
+      const [blat, blon] = FRITTES_DEFAULT;
+      const url =
+        "https://photon.komoot.io/api/?lang=es&limit=6" +
+        `&lat=${blat}&lon=${blon}&q=${encodeURIComponent(q)}`;
+      fetch(url, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((data: any) => {
+          const feats = Array.isArray(data?.features) ? data.features : [];
+          const mapped = feats
+            .filter((f: any) => f?.geometry?.coordinates?.length === 2)
+            .map((f: any) => ({
+              label: photonLabel(f.properties || {}),
+              lon: f.geometry.coordinates[0],
+              lat: f.geometry.coordinates[1],
+              country: f.properties?.countrycode,
+            }))
+            // Chile primero, pero sin descartar el resto.
+            .sort((a: any, b: any) => (b.country === "CL" ? 1 : 0) - (a.country === "CL" ? 1 : 0))
+            .map(({ label, lat, lon }: any) => ({ label, lat, lon }));
+          setResults(mapped);
+        })
+        .catch((e) => {
+          if (e?.name !== "AbortError") {
+            setFeedback({ kind: "error", text: "No se pudo buscar (revisa tu conexión)." });
+          }
+        })
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => {
+      ctrl.abort();
+      window.clearTimeout(timer);
+    };
+  }, [query]);
 
   function pickResult(r: { label: string; lat: number; lon: number }): void {
     const la = Number(r.lat.toFixed(6));
@@ -173,28 +203,45 @@ export default function ProximidadPage(): JSX.Element {
     setLat(la);
     setLng(ln);
     setResults([]);
-    setQuery(r.label.split(",").slice(0, 2).join(",").trim());
+    skipNextSearch.current = true; // no re-buscar al setear el query con la etiqueta
+    setQuery(r.label);
     const L = (window as any).L;
     if (L) placeMarker(L, la, ln);
   }
 
   function useMyLocation(): void {
     if (!navigator.geolocation) {
-      setFeedback({ kind: "error", text: "Tu navegador no permite ubicación." });
+      setFeedback({ kind: "error", text: "Tu navegador no permite ubicación. Abre la página en Chrome." });
       return;
     }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const la = Number(pos.coords.latitude.toFixed(6));
-        const ln = Number(pos.coords.longitude.toFixed(6));
-        setLat(la);
-        setLng(ln);
-        const L = (window as any).L;
-        if (L) placeMarker(L, la, ln);
-      },
-      () => setFeedback({ kind: "error", text: "No pudimos obtener tu ubicación (revisa permisos)." }),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    setFeedback({ kind: "ok", text: "Obteniendo tu ubicación…" });
+    const onOk = (pos: GeolocationPosition): void => {
+      const la = Number(pos.coords.latitude.toFixed(6));
+      const ln = Number(pos.coords.longitude.toFixed(6));
+      setLat(la);
+      setLng(ln);
+      const L = (window as any).L;
+      if (L) placeMarker(L, la, ln);
+      setFeedback({ kind: "ok", text: "Ubicación tomada. Ajusta el pin si hace falta." });
+    };
+    const onErr = (err: GeolocationPositionError): void => {
+      const text =
+        err.code === err.PERMISSION_DENIED
+          ? "Bloqueaste la ubicación. Permítela en el candado 🔒 de la barra de direcciones y reintenta."
+          : err.code === err.TIMEOUT
+            ? "La ubicación tardó demasiado. Reintenta o marca el punto en el mapa."
+            : "No pudimos obtener tu ubicación. Marca el punto en el mapa.";
+      setFeedback({ kind: "error", text });
+    };
+    // Primer intento de alta precisión; si expira, reintento rápido con baja
+    // precisión (suele resolver en interiores / sin GPS fino).
+    navigator.geolocation.getCurrentPosition(onOk, () => {
+      navigator.geolocation.getCurrentPosition(onOk, onErr, {
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 60000,
+      });
+    }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
   }
 
   async function handleSave(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -271,36 +318,25 @@ export default function ProximidadPage(): JSX.Element {
         <p className="text-sm" style={{ color: "#6B6660" }}>Cargando…</p>
       ) : (
         <form onSubmit={handleSave} className="space-y-4">
-          {/* Buscador inteligente */}
+          {/* Buscador inteligente con autocompletado */}
           <div className="relative">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Busca: Frittes Maison, o una dirección…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void runSearch();
-                  }
-                }}
-                className="min-w-0 flex-1 rounded-xl border px-4 py-2.5 text-sm"
-                style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
-              />
-              <button
-                type="button"
-                onClick={() => void runSearch()}
-                disabled={searching || query.trim().length < 3}
-                className="rounded-xl px-4 text-sm font-semibold disabled:opacity-50"
-                style={{ background: "#1A1815", color: "#FFD23F" }}
-              >
-                {searching ? "…" : "Buscar"}
-              </button>
-            </div>
+            <input
+              type="text"
+              autoComplete="off"
+              placeholder="🔍 Escribe el nombre o dirección del local…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full rounded-xl border px-4 py-2.5 text-sm"
+              style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
+            />
+            {searching ? (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs" style={{ color: "#6B6660" }}>
+                …
+              </span>
+            ) : null}
             {results.length > 0 ? (
               <ul
-                className="absolute z-[1000] mt-1 w-full overflow-hidden rounded-xl border shadow-lg"
+                className="absolute z-[1000] mt-1 max-h-64 w-full overflow-auto rounded-xl border shadow-lg"
                 style={{ borderColor: "#E2DCCC", background: "#FBF8F1" }}
               >
                 {results.map((r, i) => (
