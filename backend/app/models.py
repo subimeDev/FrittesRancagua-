@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -103,6 +103,14 @@ class RestaurantConfig(Base):
     # The customizable word for the per-card progression system. "Nivel" by default,
     # but the admin can rename it ("Rango", "Categoría", etc.).
     level_label: Mapped[str] = mapped_column(String(40), default="Nivel")
+    # Ubicación del local (grados decimales) para el geofence de Google Wallet:
+    # cuando el cliente con el pase guardado entra al radio, Wallet reexpone su
+    # tarjeta en la pantalla de bloqueo. Nullable: sin coordenadas, sin geofence.
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Mensaje de la oferta de proximidad ("10% mostrando esto"). Se configura
+    # desde el apartado oculto del admin (URL directa, sin botón en la UI).
+    proximity_message: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 

@@ -92,3 +92,24 @@ export function redeem(qrToken: string, sessionToken: string): Promise<Transacti
     token: sessionToken,
   });
 }
+
+export type Proximity = {
+  latitude: number | null;
+  longitude: number | null;
+  proximity_message: string | null;
+};
+
+export function getProximity(sessionToken: string): Promise<Proximity> {
+  return request<Proximity>("/loyalty/admin/proximity", { token: sessionToken });
+}
+
+export function updateProximity(
+  sessionToken: string,
+  payload: Partial<Proximity> & { clear?: boolean },
+): Promise<Proximity> {
+  return request<Proximity>("/loyalty/admin/proximity", {
+    method: "PATCH",
+    body: payload,
+    token: sessionToken,
+  });
+}

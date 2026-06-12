@@ -641,3 +641,84 @@ async def update_staff_user(
         target.password_hash = hash_password(payload.password)
     await db.commit()
     return {"id": target.id, "email": target.email, "name": target.name, "role": target.role, "is_active": target.is_active}
+
+
+# ---------------------------------------------------------------------------
+# Proximidad (geofence de Google Wallet) — apartado OCULTO
+# ---------------------------------------------------------------------------
+# No hay link a esto en ninguna UI: se accede por URL directa. La feature se
+# vende aparte; mientras el cliente no pague, el dueño no ve el botón. Igual
+# queda protegida por require_manager: sin sesión de manager no se puede usar.
+
+
+class ProximityUpdate(BaseModel):
+    latitude: float | None = None
+    longitude: float | None = None
+    proximity_message: str | None = None
+    clear: bool = False
+
+
+@router.get("/proximity")
+async def get_proximity(
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        return {"latitude": None, "longitude": None, "proximity_message": None}
+    return {
+        "latitude": config.latitude,
+        "longitude": config.longitude,
+        "proximity_message": config.proximity_message,
+    }
+
+
+@router.patch("/proximity")
+async def update_proximity(
+    payload: ProximityUpdate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    restaurant_id: str = Depends(get_restaurant_id),
+    _: StaffUser = Depends(require_manager),
+) -> dict[str, object]:
+    """Setea ubicación + mensaje de proximidad y re-syncea la LoyaltyClass de
+    Google (que lleva merchantLocations), así el geofence queda activo para
+    todos los pases ya guardados. `clear=true` apaga el geofence."""
+    config = await db.get(RestaurantConfig, restaurant_id)
+    if not config:
+        config = RestaurantConfig(restaurant_id=restaurant_id)
+        db.add(config)
+
+    if payload.clear:
+        config.latitude = None
+        config.longitude = None
+        config.proximity_message = None
+    else:
+        if (payload.latitude is None) != (payload.longitude is None):
+            raise api_error(
+                400, "invalid_input",
+                "latitude y longitude deben enviarse juntas (o usar clear=true).",
+            )
+        if payload.latitude is not None:
+            if not (-90 <= payload.latitude <= 90) or not (-180 <= payload.longitude <= 180):
+                raise api_error(400, "invalid_input", "coordenadas fuera de rango.")
+            config.latitude = payload.latitude
+            config.longitude = payload.longitude
+        if payload.proximity_message is not None:
+            config.proximity_message = payload.proximity_message.strip() or None
+
+    await db.commit()
+    await db.refresh(config)
+
+    # Re-sync de la class en Google (idempotente, en background: I/O bloqueante).
+    from app.loyalty.google_wallet import ensure_class, is_wallet_configured
+
+    if is_wallet_configured():
+        background_tasks.add_task(ensure_class, config)
+
+    return {
+        "latitude": config.latitude,
+        "longitude": config.longitude,
+        "proximity_message": config.proximity_message,
+    }

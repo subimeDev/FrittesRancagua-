@@ -111,7 +111,7 @@ def _object_id(customer_id: str) -> str:
 
 
 def _build_class_body(config: RestaurantConfig) -> dict:
-    return {
+    body: dict = {
         "id": _class_id(),
         "issuerName": ISSUER_NAME,
         "programName": config.tier_name or "Club Frittes",
@@ -139,6 +139,15 @@ def _build_class_body(config: RestaurantConfig) -> dict:
             ]
         },
     }
+    # Geofence ("Nearby Passes"): a nivel de CLASS aplica a TODOS los pases del
+    # tenant, incluidos los ya guardados. Cuando el cliente entra al radio,
+    # Google reexpone el pase en la pantalla de bloqueo. `merchantLocations` es
+    # el campo vigente (el viejo `locations[]` está deprecado).
+    lat = getattr(config, "latitude", None)
+    lng = getattr(config, "longitude", None)
+    if lat is not None and lng is not None:
+        body["merchantLocations"] = [{"latitude": lat, "longitude": lng}]
+    return body
 
 
 def ensure_class(config: RestaurantConfig) -> str:
@@ -247,6 +256,17 @@ def _loyalty_object(
         }
 
     text_modules: list[dict] = []
+    # Oferta de proximidad: la notificación la dispara Google con
+    # merchantLocations (texto controlado por Google), pero la oferta concreta
+    # ("10% mostrando esto") vive acá, visible cuando el geofence reexpone el
+    # pase. Va primera. Filtramos caracteres de control por defensa.
+    prox = getattr(config, "proximity_message", None)
+    if prox:
+        safe_prox = "".join(c for c in prox if c in "\n\t" or ord(c) >= 32).strip()[:200]
+        if safe_prox:
+            text_modules.append(
+                {"id": "oferta_proximidad", "header": "Al visitarnos", "body": safe_prox}
+            )
     if tiers:
         text_modules.append(
             {
