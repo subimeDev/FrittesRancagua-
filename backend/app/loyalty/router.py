@@ -369,9 +369,43 @@ async def accrue(
     )
     config, tiers = await _wallet_context(db, restaurant_id)
     await db.commit()
-    # Sync del pase de Google Wallet en background (no bloquea la respuesta
-    # al POS; 404 si el cliente nunca guardó el pase → se ignora).
-    background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
+    # Sync del pase de Google Wallet en background + notificación push (que
+    # además fuerza el re-sync inmediato en el teléfono). Si el sello que
+    # acaba de entrar completa un premio → notificación destacada, el
+    # equivalente Wallet de la celebración de la app.
+    unlocked = next(
+        (
+            str(t["reward_name"])
+            for t in tiers
+            if int(str(t["stamps_required"])) == customer.stamps
+        ),
+        None,
+    )
+    next_t = next(
+        (t for t in tiers if int(str(t["stamps_required"])) > customer.stamps), None
+    )
+    if unlocked:
+        notify_header = "¡Premio desbloqueado! 🎁"
+        notify_body = f"Tienes {unlocked} listo para canjear en Frittes Maison."
+        notify_priority = "high"
+    else:
+        notify_header = "+1 sello en Frittes Maison"
+        notify_body = (
+            f"Llevas {customer.stamps} sellos · te faltan "
+            f"{int(str(next_t['stamps_required'])) - customer.stamps} para {next_t['reward_name']}."
+            if next_t
+            else f"Llevas {customer.stamps} sellos. ¡Gracias por venir!"
+        )
+        notify_priority = "low"
+    background_tasks.add_task(
+        update_loyalty_object,
+        customer,
+        config,
+        tiers=tiers,
+        notify_header=notify_header,
+        notify_body=notify_body,
+        notify_priority=notify_priority,
+    )
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,
@@ -395,7 +429,15 @@ async def redeem(
     config, tiers = await _wallet_context(db, restaurant_id)
     await db.commit()
     background_tasks.add_task(service.send_redemption_email, customer.name, customer.phone, reward_name)
-    background_tasks.add_task(update_loyalty_object, customer, config, tiers=tiers)
+    background_tasks.add_task(
+        update_loyalty_object,
+        customer,
+        config,
+        tiers=tiers,
+        notify_header="Premio canjeado ✓",
+        notify_body=f"Disfrutaste {reward_name}. ¡Por el próximo!",
+        notify_priority="high",
+    )
     return TransactionResponse(
         kind=cast(Literal["accrual", "redeem"], kind),
         new_balance=customer.stamps,

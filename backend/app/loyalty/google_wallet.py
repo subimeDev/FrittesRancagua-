@@ -317,15 +317,58 @@ def build_save_url(
     return f"https://pay.google.com/gp/v/save/{jwt_str}"
 
 
+# Throttle de notificaciones push por pase: Google rechaza más de 3 mensajes
+# con notificación por objeto cada 24h. Los avisos de sello regular ("low") se
+# cortan a 2/día para reservar cupo a los de premio ("high"). In-memory está
+# bien: 1 worker y un reset por deploy solo permite algún aviso de más.
+_NOTIFY_DAILY_CAP = 3
+_NOTIFY_LOW_PRIORITY_CAP = 2
+_notify_counts: dict[str, tuple[str, int]] = {}
+
+
+def _notify_allowed(object_id: str, priority: str) -> bool:
+    day = time.strftime("%Y-%m-%d")
+    stored_day, count = _notify_counts.get(object_id, (day, 0))
+    if stored_day != day:
+        count = 0
+    cap = _NOTIFY_DAILY_CAP if priority == "high" else _NOTIFY_LOW_PRIORITY_CAP
+    if count >= cap:
+        return False
+    _notify_counts[object_id] = (day, count + 1)
+    return True
+
+
+def _push_message(service, oid: str, header: str, body: str) -> None:
+    """Mensaje con notificación push al pase ya guardado. Queda en el detalle
+    del pase y Android muestra la notificación — que además fuerza el re-sync
+    inmediato del pase (el efecto "tiempo real" que el refresh pasivo no da)."""
+    service.loyaltyobject().addmessage(
+        resourceId=oid,
+        body={
+            "message": {
+                "id": f"msg-{uuid.uuid4().hex[:12]}",
+                "header": header,
+                "body": body,
+                "messageType": "TEXT_AND_NOTIFY",
+            }
+        },
+    ).execute()
+
+
 def update_loyalty_object(
     customer: Customer,
     config: RestaurantConfig,
     *,
     tiers: list[dict] | None = None,
+    notify_header: str | None = None,
+    notify_body: str | None = None,
+    notify_priority: str = "low",
 ) -> None:
     """Push del estado actual al pase ya guardado. Llamar (en background)
     después de cada accrue/redeem. 404 = el cliente nunca guardó el pase →
-    se ignora. NUNCA levanta excepciones (el POS no debe fallar por Google)."""
+    se ignora. Con `notify_header`/`notify_body`, tras el patch exitoso se
+    manda una notificación push (throttled). NUNCA levanta excepciones (el
+    POS no debe fallar por Google)."""
     if not is_wallet_configured():
         return
     try:
@@ -337,7 +380,7 @@ def update_loyalty_object(
             try:
                 service.loyaltyobject().patch(resourceId=oid, body=body).execute()
                 logger.debug("wallet_sync ok object=%s", oid)
-                return
+                break
             except Exception as exc:
                 status = getattr(getattr(exc, "resp", None), "status", None)
                 if status == 404:
@@ -352,6 +395,14 @@ def update_loyalty_object(
                     oid, status, attempt, attempts, exc,
                 )
                 return
+        # Notificación DESPUÉS del patch: no avisamos un estado que el pase no
+        # muestra. Best-effort: un 429 de Google se loguea y ya.
+        if notify_header and notify_body and _notify_allowed(oid, notify_priority):
+            try:
+                _push_message(service, oid, notify_header, notify_body)
+                logger.debug("wallet_notify ok object=%s", oid)
+            except Exception as exc:
+                logger.warning("wallet_notify failed object=%s err=%s", oid, exc)
     except Exception as exc:
         logger.warning("wallet_sync outer failure customer=%s err=%s", customer.id, exc)
 
