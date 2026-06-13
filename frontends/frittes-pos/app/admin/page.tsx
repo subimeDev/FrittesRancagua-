@@ -74,7 +74,7 @@ type ProgramConfig = {
   level_label?: string;
 };
 
-type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "staff";
+type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "staff" | "wallet";
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ function AdminPageInner(): JSX.Element {
   }, [router]);
 
   useEffect(() => {
-    if (staff && !isManager && (tab === "staff" || tab === "config")) {
+    if (staff && !isManager && (tab === "staff" || tab === "config" || tab === "wallet")) {
       setTab("stats");
     }
   }, [staff, isManager, tab]);
@@ -208,6 +208,7 @@ function AdminPageInner(): JSX.Element {
     { key: "customers", label: "Clientes" },
     { key: "transactions", label: "Movimientos" },
     ...(isManager ? [{ key: "config" as Tab, label: "Config" }] : []),
+    ...(isManager ? [{ key: "wallet" as Tab, label: "Wallet" }] : []),
     ...(isManager ? [{ key: "staff" as Tab, label: "Cajeros" }] : []),
   ];
 
@@ -286,8 +287,54 @@ function AdminPageInner(): JSX.Element {
       )}
       {tab === "transactions" && <TransactionsTab token={token} onUnauthorized={handleUnauthorized} />}
       {tab === "config" && isManager && <ConfigTab token={token} onUnauthorized={handleUnauthorized} />}
+      {tab === "wallet" && isManager && <WalletTab />}
       {tab === "staff" && isManager && <StaffTab token={token} currentStaffId={staff.id} onUnauthorized={handleUnauthorized} />}
     </main>
+  );
+}
+
+// ─── Wallet Tab ───────────────────────────────────────────────────────────────
+// Accesos a las herramientas de Google Wallet (proximidad y anuncios). Antes
+// vivían solo por URL directa; ahora que el dueño tiene la feature activa, se
+// muestran como tarjetas en el panel.
+
+function WalletTab(): JSX.Element {
+  const router = useRouter();
+  const cards = [
+    {
+      href: "/proximidad",
+      emoji: "📍",
+      title: "Notificación por cercanía",
+      body: "Marca el local en el mapa y define una oferta. Cuando un cliente con la tarjeta guardada pasa cerca, Google Wallet le recuerda tu local.",
+    },
+    {
+      href: "/anuncio",
+      emoji: "📣",
+      title: "Enviar anuncio a clientes",
+      body: "Manda una notificación con tu mensaje a todos los clientes que tengan la tarjeta en Google Wallet. Ideal para promos puntuales.",
+    },
+  ];
+  return (
+    <div className="space-y-3">
+      <p className="px-1 text-xs text-black/50">
+        Herramientas de Google Wallet para llegarle a tus clientes en el celular.
+      </p>
+      {cards.map((c) => (
+        <button
+          key={c.href}
+          type="button"
+          onClick={() => router.push(c.href)}
+          className="flex w-full items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-mustard-deep/40 active:scale-[0.99]"
+        >
+          <span className="text-2xl leading-none">{c.emoji}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-bold text-ink">{c.title}</span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-black/55">{c.body}</span>
+          </span>
+          <span className="mt-1 flex-none text-black/30">→</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

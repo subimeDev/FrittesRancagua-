@@ -6,11 +6,10 @@ import { useRouter } from "next/navigation";
 import { ApiError, getProximity, updateProximity, type Proximity } from "@/lib/api";
 
 /**
- * Apartado OCULTO de proximidad (geofence de Google Wallet) para Frittes.
+ * Configuración de proximidad (geofence de Google Wallet) para Frittes.
  *
- * No hay botón a esta página en ninguna parte del POS: se entra por URL directa
- * `/proximidad`. La feature se cobra aparte, así que solo llegamos acá cuando
- * el cliente pagó. Exige sesión de manager (el backend valida require_manager).
+ * Accesible desde el panel admin (pestaña Wallet) o por URL directa. Exige
+ * sesión de manager (el backend valida require_manager).
  *
  * Mapa: Leaflet + OpenStreetMap (sin API key). El manager hace clic en el mapa
  * o usa "mi ubicación" → lat/lng se calculan solas, sin copiar coordenadas.
@@ -303,8 +302,16 @@ export default function ProximidadPage(): JSX.Element {
   return (
     <main className="mx-auto min-h-screen max-w-lg px-5 py-8" style={{ background: "#F5F1E8", color: "#1A1815" }}>
       <header className="mb-5">
+        <button
+          type="button"
+          onClick={() => router.push("/admin?tab=wallet")}
+          className="mb-3 text-xs font-medium"
+          style={{ color: "#6B6660" }}
+        >
+          ← Volver al panel
+        </button>
         <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#6B6660" }}>
-          Apartado oculto · proximidad
+          Google Wallet · proximidad
         </p>
         <h1 className="mt-1 text-2xl font-black">Notificación por cercanía</h1>
         <p className="mt-3 rounded-xl px-3 py-2 text-xs leading-relaxed" style={{ background: "#EDE8DB", color: "#6B6660" }}>

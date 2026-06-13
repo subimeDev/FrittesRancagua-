@@ -11,12 +11,12 @@ import {
 } from "@/lib/api";
 
 /**
- * Apartado OCULTO: enviar un anuncio a TODOS los clientes con la tarjeta en
- * Google Wallet (un addmessage a la clase → Google lo propaga a cada pase).
+ * Enviar un anuncio a TODOS los clientes con la tarjeta en Google Wallet (un
+ * addmessage a la clase → Google lo propaga a cada pase).
  *
- * Sin botón en la UI: se entra por URL directa `/anuncio`. Exige sesión de
- * manager. Tope diario propio (mostrado en pantalla) para no quemar el cupo de
- * Google ni molestar a los clientes.
+ * Accesible desde el panel admin (pestaña Wallet) o por URL directa. Exige
+ * sesión de manager. Tope diario propio (mostrado en pantalla) para no quemar
+ * el cupo de Google ni molestar a los clientes.
  */
 export default function AnuncioPage(): JSX.Element {
   const router = useRouter();
@@ -103,8 +103,16 @@ export default function AnuncioPage(): JSX.Element {
   return (
     <main className="mx-auto min-h-screen max-w-lg px-5 py-8" style={{ background: "#F5F1E8", color: "#1A1815" }}>
       <header className="mb-5">
+        <button
+          type="button"
+          onClick={() => router.push("/admin?tab=wallet")}
+          className="mb-3 text-xs font-medium"
+          style={{ color: "#6B6660" }}
+        >
+          ← Volver al panel
+        </button>
         <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#6B6660" }}>
-          Apartado oculto · anuncios
+          Google Wallet · anuncios
         </p>
         <h1 className="mt-1 text-2xl font-black">Enviar anuncio a clientes</h1>
         <p className="mt-3 rounded-xl px-3 py-2 text-xs leading-relaxed" style={{ background: "#EDE8DB", color: "#6B6660" }}>
