@@ -29,10 +29,6 @@ function formatCLP(pesos: number): string {
   return `$${(pesos || 0).toLocaleString("es-CL")}`;
 }
 
-function isVeggie(categoryName: string, item: MenuItem): boolean {
-  return /veggie/i.test(categoryName) || (item.badge ?? "").toLowerCase() === "veggie";
-}
-
 export function MenuClient({ menu }: { menu: MenuView }): JSX.Element {
   const categories = menu.categories.filter((c) => c.items.length > 0);
   const [cart, setCart] = useState<Record<string, Line>>({});
@@ -77,71 +73,84 @@ export function MenuClient({ menu }: { menu: MenuView }): JSX.Element {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-paper" style={{ background: "var(--brand-cream)" }}>
-      <span className="blob-mustard-tl" aria-hidden />
-      <span className="blob-mustard-br" aria-hidden />
+    <div className="min-h-screen" style={{ background: "var(--brand-cream)" }}>
+      {/* Hero oscuro contenido (sin blobs que tapen el contenido) */}
+      <header className="px-5 pb-6 pt-7 text-center" style={{ background: "var(--brand-ink)", borderRadius: "0 0 28px 28px" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/frittes-logo-trans.png"
+          alt={menu.brand_name}
+          className="mx-auto h-20 w-auto object-contain"
+          style={{ filter: "brightness(0) invert(1)" }}
+        />
+        <h1 className="mt-2 font-display text-2xl font-black uppercase tracking-wide" style={{ color: "var(--brand-cream)" }}>
+          {menu.brand_name}
+        </h1>
+        <p className="mt-0.5 text-xs" style={{ color: "#cdbfa4" }}>
+          Carta digital · pide fácil
+        </p>
+      </header>
 
-      <main className="relative z-10 mx-auto max-w-2xl px-5 py-8 pb-32">
-        {/* Encabezado tipo PDF */}
-        <header className="mb-9 text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/frittes-logo-trans.png" alt={menu.brand_name} className="mx-auto h-28 w-auto object-contain" />
-          <h1 className="mt-3 font-display text-4xl font-black uppercase tracking-tight text-ink">Menú</h1>
-        </header>
-
-        <div className="space-y-9">
+      <main className="mx-auto max-w-2xl px-4 pb-32 pt-2">
+        <div className="space-y-7">
           {categories.map((cat) => {
             const veg = /veggie/i.test(cat.name);
             const accent = veg ? "var(--brand-forest)" : "var(--brand-mustard)";
             return (
-              <section key={cat.id}>
-                <div className="mb-4 flex items-center gap-2">
-                  <h2 className="font-display text-2xl font-black uppercase tracking-tight text-ink">
+              <section key={cat.id} className="mt-6">
+                <div className="flex items-center gap-2">
+                  <h2 className="font-display text-xl font-black uppercase tracking-tight text-ink">
                     {cat.name}
                   </h2>
-                  {veg ? <span className="text-lg" aria-hidden>🌱</span> : null}
+                  {veg ? (
+                    <span
+                      className="rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                      style={{ background: "var(--brand-forest)", color: "#fff" }}
+                    >
+                      🌱 Veggie
+                    </span>
+                  ) : null}
                 </div>
-                <div className="h-1 w-full rounded-full" style={{ background: accent, opacity: 0.85 }} />
+                <div className="mt-1.5 h-[3px] w-12 rounded-full" style={{ background: accent }} />
 
-                <ul className="mt-4 space-y-4">
+                <div className="mt-3 space-y-3">
                   {cat.items.map((it) => {
                     const decorative = it.price_cents === 0; // ej: lista de toppings
-                    const veggieItem = isVeggie(cat.name, it);
                     return (
-                      <li key={it.id} className="flex gap-3" style={{ opacity: it.is_available ? 1 : 0.5 }}>
+                      <article
+                        key={it.id}
+                        className="flex gap-3 rounded-2xl border p-3.5"
+                        style={{
+                          borderColor: "var(--brand-line)",
+                          background: "var(--brand-cream-elev)",
+                          opacity: it.is_available ? 1 : 0.55,
+                        }}
+                      >
                         {it.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={it.image_url} alt={it.name} className="h-20 w-20 flex-none rounded-2xl object-cover" />
+                          <img src={it.image_url} alt={it.name} className="h-16 w-16 flex-none rounded-xl object-cover" />
                         ) : null}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline justify-between gap-2">
-                            <p className="font-display font-bold leading-tight text-ink">
+                            <p className="font-display font-extrabold leading-tight text-ink">
                               {it.name}
-                              {it.badge ? (
-                                <span
-                                  className="ml-2 rounded-full px-2 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wider"
-                                  style={{
-                                    background: veggieItem ? "var(--brand-forest)" : "var(--brand-mustard)",
-                                    color: veggieItem ? "#fff" : "var(--brand-ink)",
-                                  }}
-                                >
-                                  {it.badge}
-                                </span>
-                              ) : null}
                               {!it.is_available ? (
                                 <span className="ml-2 text-[10px] font-semibold" style={{ color: "var(--brand-ember)" }}>
-                                  No disponible
+                                  Agotado
                                 </span>
                               ) : null}
                             </p>
                             {!decorative ? (
-                              <p className="flex-none font-mono text-sm font-black tabular-nums text-ink">
+                              <span
+                                className="flex-none rounded-full px-2.5 py-1 text-sm font-black tabular-nums"
+                                style={{ background: "var(--brand-mustard)", color: "var(--brand-ink)" }}
+                              >
                                 {formatCLP(it.price_cents)}
-                              </p>
+                              </span>
                             ) : null}
                           </div>
                           {it.description ? (
-                            <p className="mt-0.5 whitespace-pre-line text-sm leading-snug text-ink-muted">
+                            <p className="mt-1 whitespace-pre-line text-[12.5px] leading-relaxed text-ink-muted">
                               {it.description}
                             </p>
                           ) : null}
@@ -149,34 +158,32 @@ export function MenuClient({ menu }: { menu: MenuView }): JSX.Element {
                             <button
                               type="button"
                               onClick={() => add(it, cat.name)}
-                              className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold transition active:scale-95"
+                              className="mt-2.5 inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-extrabold transition active:scale-95"
                               style={{ background: "var(--brand-ink)", color: "var(--brand-mustard)" }}
                             >
-                              + Agregar al pedido
+                              + Agregar
                             </button>
                           ) : null}
                         </div>
-                      </li>
+                      </article>
                     );
                   })}
-                </ul>
+                </div>
               </section>
             );
           })}
         </div>
 
-        {/* Footer tipo PDF */}
-        <footer className="mt-12 border-t-2 pt-5 text-center" style={{ borderColor: "var(--brand-ink)" }}>
+        {/* Footer */}
+        <footer className="mt-10 text-center">
           <a
             href="/"
-            className="inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-bold"
-            style={{ background: "var(--brand-ink)", color: "var(--brand-mustard)" }}
+            className="inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-extrabold"
+            style={{ background: "var(--brand-mustard)", color: "var(--brand-ink)" }}
           >
             ⭐ Únete al club y junta sellos
           </a>
-          <p className="mt-4 font-display text-sm font-black text-ink">
-            🛵 Delivery al +569 3520 4723
-          </p>
+          <p className="mt-4 font-display text-sm font-black text-ink">🛵 Delivery al +569 3520 4723</p>
           <p className="mt-1 text-[10px] uppercase tracking-[0.18em] text-ink-muted">
             {menu.brand_name} · Precios en CLP
           </p>
