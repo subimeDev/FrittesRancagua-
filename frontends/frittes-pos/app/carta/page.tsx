@@ -10,6 +10,7 @@ import {
   type MenuCategoryData,
   type MenuItemData,
 } from "@/lib/api";
+import { FRITTES_MENU } from "@/lib/frittes-menu-seed";
 
 /**
  * Editor de la carta (menú QR) de Frittes. Accesible desde el panel (pestaña
@@ -306,6 +307,21 @@ export default function CartaPage(): JSX.Element {
           >
             + Agregar categoría
           </button>
+
+          {/* Carga rápida del menú real de Frittes (solo si está vacío) */}
+          {cats.length === 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCats(structuredClone(FRITTES_MENU));
+                setFeedback({ kind: "ok", text: "Menú de Frittes cargado. Revisa y dale Guardar." });
+              }}
+              className="w-full rounded-xl py-3 text-sm font-bold"
+              style={{ background: "#FFD23F", color: "#1A1815" }}
+            >
+              🍟 Cargar menú completo de Frittes
+            </button>
+          ) : null}
         </div>
       )}
 

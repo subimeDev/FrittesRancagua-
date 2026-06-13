@@ -120,7 +120,7 @@ export default async function MenuPage(): Promise<JSX.Element> {
                         </p>
                       </div>
                       {it.description ? (
-                        <p className="mt-0.5 text-sm leading-snug" style={{ color: "var(--brand-ink-muted)" }}>
+                        <p className="mt-0.5 whitespace-pre-line text-sm leading-snug" style={{ color: "var(--brand-ink-muted)" }}>
                           {it.description}
                         </p>
                       ) : null}
