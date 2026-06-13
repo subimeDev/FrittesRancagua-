@@ -322,6 +322,21 @@ function CartaTab(): JSX.Element {
         </span>
         <span className="mt-1 flex-none text-black/30">→</span>
       </button>
+      <button
+        type="button"
+        onClick={() => router.push("/carta-qr")}
+        className="flex w-full items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-mustard-deep/40 active:scale-[0.99]"
+      >
+        <span className="text-2xl leading-none">📲</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-ink">Generar QR de la carta</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-black/55">
+            Descarga o imprime el código QR para pegar en las mesas. No cambia
+            aunque edites el menú.
+          </span>
+        </span>
+        <span className="mt-1 flex-none text-black/30">→</span>
+      </button>
       <a
         href="https://frittes2026.cl/menu"
         target="_blank"
