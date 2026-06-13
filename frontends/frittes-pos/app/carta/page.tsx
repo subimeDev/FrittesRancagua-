@@ -308,20 +308,28 @@ export default function CartaPage(): JSX.Element {
             + Agregar categoría
           </button>
 
-          {/* Carga rápida del menú real de Frittes (solo si está vacío) */}
-          {cats.length === 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setCats(structuredClone(FRITTES_MENU));
-                setFeedback({ kind: "ok", text: "Menú de Frittes cargado. Revisa y dale Guardar." });
-              }}
-              className="w-full rounded-xl py-3 text-sm font-bold"
-              style={{ background: "#FFD23F", color: "#1A1815" }}
-            >
-              🍟 Cargar menú completo de Frittes
-            </button>
-          ) : null}
+          {/* Carga rápida del menú real de Frittes. Si ya hay carta, confirma
+              antes de reemplazar (no se guarda hasta tocar "Guardar carta"). */}
+          <button
+            type="button"
+            onClick={() => {
+              if (
+                cats.length > 0 &&
+                !window.confirm(
+                  "Esto reemplaza la carta del editor con el menú completo de Frittes. " +
+                    "No se guarda hasta que toques 'Guardar carta'. ¿Continuar?",
+                )
+              ) {
+                return;
+              }
+              setCats(structuredClone(FRITTES_MENU));
+              setFeedback({ kind: "ok", text: "Menú de Frittes cargado. Revisa y dale Guardar." });
+            }}
+            className="w-full rounded-xl py-3 text-sm font-bold"
+            style={{ background: "#FFD23F", color: "#1A1815" }}
+          >
+            🍟 {cats.length > 0 ? "Reemplazar con el menú completo de Frittes" : "Cargar menú completo de Frittes"}
+          </button>
         </div>
       )}
 
