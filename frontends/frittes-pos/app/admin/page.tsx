@@ -74,7 +74,7 @@ type ProgramConfig = {
   level_label?: string;
 };
 
-type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "staff" | "wallet";
+type Tab = "stats" | "top" | "customers" | "transactions" | "config" | "carta" | "staff" | "wallet";
 
 // ─── API ─────────────────────────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ function AdminPageInner(): JSX.Element {
   }, [router]);
 
   useEffect(() => {
-    if (staff && !isManager && (tab === "staff" || tab === "config" || tab === "wallet")) {
+    if (staff && !isManager && (tab === "staff" || tab === "config" || tab === "wallet" || tab === "carta")) {
       setTab("stats");
     }
   }, [staff, isManager, tab]);
@@ -208,6 +208,7 @@ function AdminPageInner(): JSX.Element {
     { key: "customers", label: "Clientes" },
     { key: "transactions", label: "Movimientos" },
     ...(isManager ? [{ key: "config" as Tab, label: "Config" }] : []),
+    ...(isManager ? [{ key: "carta" as Tab, label: "Carta" }] : []),
     ...(isManager ? [{ key: "wallet" as Tab, label: "Wallet" }] : []),
     ...(isManager ? [{ key: "staff" as Tab, label: "Cajeros" }] : []),
   ];
@@ -287,6 +288,7 @@ function AdminPageInner(): JSX.Element {
       )}
       {tab === "transactions" && <TransactionsTab token={token} onUnauthorized={handleUnauthorized} />}
       {tab === "config" && isManager && <ConfigTab token={token} onUnauthorized={handleUnauthorized} />}
+      {tab === "carta" && isManager && <CartaTab />}
       {tab === "wallet" && isManager && <WalletTab />}
       {tab === "staff" && isManager && <StaffTab token={token} currentStaffId={staff.id} onUnauthorized={handleUnauthorized} />}
     </main>
@@ -297,6 +299,47 @@ function AdminPageInner(): JSX.Element {
 // Accesos a las herramientas de Google Wallet (proximidad y anuncios). Antes
 // vivían solo por URL directa; ahora que el dueño tiene la feature activa, se
 // muestran como tarjetas en el panel.
+
+function CartaTab(): JSX.Element {
+  const router = useRouter();
+  return (
+    <div className="space-y-3">
+      <p className="px-1 text-xs text-black/50">
+        Tu carta digital con QR para las mesas. Edita platos y precios al instante.
+      </p>
+      <button
+        type="button"
+        onClick={() => router.push("/carta")}
+        className="flex w-full items-start gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-mustard-deep/40 active:scale-[0.99]"
+      >
+        <span className="text-2xl leading-none">🍔</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-ink">Editar carta</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-black/55">
+            Categorías, platos, precios, fotos y disponibilidad. Se actualiza al
+            instante en el QR de las mesas.
+          </span>
+        </span>
+        <span className="mt-1 flex-none text-black/30">→</span>
+      </button>
+      <a
+        href="https://frittes2026.cl/menu"
+        target="_blank"
+        rel="noreferrer"
+        className="flex w-full items-center gap-3 rounded-2xl border border-line bg-white p-4 text-left transition hover:border-mustard-deep/40"
+      >
+        <span className="text-2xl leading-none">🔗</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-bold text-ink">Ver carta pública</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-black/55">
+            frittes2026.cl/menu — lo que ven tus clientes al escanear el QR.
+          </span>
+        </span>
+        <span className="mt-1 flex-none text-black/30">→</span>
+      </a>
+    </div>
+  );
+}
 
 function WalletTab(): JSX.Element {
   const router = useRouter();

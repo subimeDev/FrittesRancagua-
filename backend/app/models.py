@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -138,4 +138,36 @@ class RewardTier(Base):
     restaurant_id: Mapped[str] = mapped_column(String(80), index=True)
     stamps_required: Mapped[int] = mapped_column(Integer)
     reward_name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MenuCategory(Base):
+    """Sección de la carta: Hamburguesas, Bebidas, Postres, etc."""
+
+    __tablename__ = "menu_categories"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    restaurant_id: Mapped[str] = mapped_column(String(80), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MenuItem(Base):
+    """Plato de la carta. Pertenece a una `MenuCategory`."""
+
+    __tablename__ = "menu_items"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    restaurant_id: Mapped[str] = mapped_column(String(80), index=True)
+    category_id: Mapped[str] = mapped_column(ForeignKey("menu_categories.id"), index=True)
+    name: Mapped[str] = mapped_column(String(160))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Precio en pesos enteros (CLP). El campo se llama price_cents por
+    # compatibilidad con el molde, pero acá guardamos pesos (sin decimales).
+    price_cents: Mapped[int] = mapped_column(Integer, default=0)
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    badge: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

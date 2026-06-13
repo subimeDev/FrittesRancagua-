@@ -102,3 +102,49 @@ class OtpVerifyRequest(BaseModel):
 
 class EmailLoginRequest(BaseModel):
     email: str
+
+
+# ─── Carta (menú) ─────────────────────────────────────────────────────────────
+
+class MenuItemView(BaseModel):
+    id: str
+    category_id: str
+    name: str
+    description: str | None = None
+    price_cents: int
+    is_available: bool
+    badge: str | None = None
+    image_url: str | None = None
+    position: int
+
+
+class MenuCategoryView(BaseModel):
+    id: str
+    name: str
+    position: int
+    items: list[MenuItemView] = Field(default_factory=list)
+
+
+class MenuView(BaseModel):
+    brand_name: str
+    categories: list[MenuCategoryView] = Field(default_factory=list)
+
+
+class MenuItemInput(BaseModel):
+    id: str | None = None
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=400)
+    price_cents: int = Field(ge=0)
+    is_available: bool = True
+    badge: str | None = Field(default=None, max_length=40)
+    image_url: str | None = None
+
+
+class MenuCategoryInput(BaseModel):
+    id: str | None = None
+    name: str = Field(min_length=1, max_length=120)
+    items: list[MenuItemInput] = Field(default_factory=list)
+
+
+class MenuReplaceRequest(BaseModel):
+    categories: list[MenuCategoryInput] = Field(default_factory=list)

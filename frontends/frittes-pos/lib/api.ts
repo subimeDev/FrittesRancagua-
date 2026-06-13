@@ -136,3 +136,41 @@ export function sendAnnounce(
     token: sessionToken,
   });
 }
+
+// ─── Carta (menú) ─────────────────────────────────────────────────────────────
+
+export type MenuItemData = {
+  id: string | null;
+  name: string;
+  description: string | null;
+  price_cents: number; // en Frittes: pesos CLP directos (sin centavos)
+  is_available: boolean;
+  badge: string | null;
+  image_url: string | null;
+};
+
+export type MenuCategoryData = {
+  id: string | null;
+  name: string;
+  items: MenuItemData[];
+};
+
+export type MenuData = {
+  brand_name: string;
+  categories: Array<MenuCategoryData & { position?: number }>;
+};
+
+export function getMenu(sessionToken: string): Promise<MenuData> {
+  return request<MenuData>("/loyalty/admin/menu", { token: sessionToken });
+}
+
+export function saveMenu(
+  sessionToken: string,
+  categories: MenuCategoryData[],
+): Promise<MenuData> {
+  return request<MenuData>("/loyalty/admin/menu", {
+    method: "PUT",
+    body: { categories },
+    token: sessionToken,
+  });
+}

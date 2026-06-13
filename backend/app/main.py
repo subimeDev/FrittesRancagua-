@@ -17,6 +17,7 @@ from app.loyalty.exceptions import (
     RewardTierNotFoundError,
 )
 from app.loyalty.admin_router import router as admin_router
+from app.loyalty.menu_router import router as menu_router
 from app.loyalty.router import router as loyalty_router
 
 logger = logging.getLogger(__name__)
@@ -86,3 +87,4 @@ async def healthz() -> dict[str, str]:
 
 app.include_router(loyalty_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(menu_router, prefix="/api/v1")
